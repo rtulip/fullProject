@@ -106,7 +106,7 @@ void myDAC_init(){
 	// PA4
 	RCC->APB1ENR |= RCC_APB1ENR_DACEN;				//Activate DAC clock
 
-
+	DAC->CR |= DAC_CR_EN1;							//Enable DAC
 
 }
 
