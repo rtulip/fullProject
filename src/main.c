@@ -66,13 +66,14 @@ int main(int argc, char* argv[]){
 
 	while (1){
 
-		while (ADC1->ISR & ADC_ISR_EOSEQ == 0){
-			while ((ADC1->ISR & ADC_ISR_EOC) == 0);
-			ADC1->ISR |= ADC_ISR_EOC;
-		}
-		double test = (ADC1->DR & 0x00FF);
-		printf("Value: %lf\n",test);
-
+		//trace_printf("Waiting for EOC...\n");
+		while((ADC1->ISR & ADC_ISR_EOSEQ) == 0);
+		//trace_printf("Reset EOC\n");
+		ADC1->ISR &= ~ADC_ISR_EOC;
+		int test = (ADC1->DR & 0x00FF);
+		trace_printf("Value: %d\n",test);
+		trace_printf("Reset EOSEQ\n");
+		//ADC1->ISR &= ~ADC_ISR_EOSEQ;
 
 	}
 
@@ -81,17 +82,26 @@ int main(int argc, char* argv[]){
 void myADC_init(){
 
 	// USE PC0 (ADC_IN10)
+	ADC1->ISR = 0x0000;								// Ensure ADC_ISR is reset
+	ADC1->IER = 0x0000;								// Disable all interrupts
+	ADC1->CFGR1 = 0x0000;							// Ensure configuration is reset
+	ADC1->CFGR2 = 0x0000;							// Ensure configuration is reset
+
+	ADC1->IER |= ADC_IER_EOCIE;						// Enable EOC interrupts
+	ADC1->IER |= ADC_IER_ADRDYIE;					// Enable ADRDY interrupts
+
 	RCC->APB2ENR |= RCC_APB2ENR_ADC1EN;				// Activate ADC clock1
 	ADC1->CFGR2 |= ADC_CFGR2_CKMODE_1;				// Set clock mode
-	// continuous mode
-	// sampling rate
-	ADC1->CFGR1 |= ADC_CFGR1_CONT;					// Set to continuous mode
-	ADC1->SMPR |= ADC_SMPR1_SMPR;
 
-	ADC1->ISR = 0x0000;								// Ensure ADC_ISR is reset
-	ADC1->CHSELR = 0x0400;
+	ADC1->CFGR1 |= ADC_CFGR1_CONT;					// Set to continuous mode
+	ADC1->CFGR1 |= ADC_CFGR1_RES_1;					// Set resolution of conversation to 8bit
+
+	ADC1->SMPR |= ADC_SMPR1_SMPR;					// Set lowest sampling rate
+
+	ADC1->CHSELR = 0x0400;							// Select Channel 10
 	ADC1->CR = 0x0000;								// Ensure ADC_CR_ADEN == 0
 	ADC1->CR |= ADC_CR_ADCAL;						// Set ADC_CR_ADCAL to 1
+
 	while(((ADC1->CR & ADC_CR_ADCAL) << 1) == 1);	// Wait for ADCAL to == 0
 
 	CF = (ADC1->DR & 0x007F);						// Read calibration factor
@@ -100,6 +110,12 @@ void myADC_init(){
 	ADC1->CR |= ADC_CR_ADEN;						// Raise ADC_CR_ADEN to 1
 	while((ADC1->ISR & ADC_ISR_ADRDY) == 0);		// Wait for ADRDY to == 1
 	trace_printf("ADC Ready\n");
+}
+
+void ADC1_IRQHandler(){
+
+	trace_printf("\n\n\n IT WORKED!!!! \n\n\n");
+
 }
 
 void myDAC_init(){
