@@ -54,6 +54,7 @@
 int CF;
 void myADC_init();
 void myDAC_init();
+void myGPIOC_init();
 
 int main(int argc, char* argv[]){
 	// At this stage the system clock should have already been configured
@@ -72,8 +73,7 @@ int main(int argc, char* argv[]){
 		ADC1->ISR &= ~ADC_ISR_EOC;
 		int test = (ADC1->DR & 0x00FF);
 		trace_printf("Value: %d\n",test);
-		trace_printf("Reset EOSEQ\n");
-		//ADC1->ISR &= ~ADC_ISR_EOSEQ;
+		ADC1->ISR &= ~ADC_ISR_EOSEQ;
 
 	}
 
