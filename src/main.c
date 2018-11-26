@@ -51,31 +51,148 @@
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 #pragma GCC diagnostic ignored "-Wmissing-declarations"
 #pragma GCC diagnostic ignored "-Wreturn-type"
+
 int CF;
+int FIRST_RISING_EDGE = 0;
+
+#define myTIM2_PRESCALER ((uint16_t)0x0000)
+/* Maximum possible setting for overflow */
+#define myTIM2_PERIOD ((uint32_t)0xFFFFFFFF)
+
+void myGPIOA_Init(void);
+void myGPIOB_Init(void);
+void myGPIOC_Init(void);
+void myTIM2_Init(void);
+void myEXTI_Init(void);
 void myADC_init();
 void myDAC_init();
+void mySPI_Init();
+void write_SPI(uint8_t data);
 
 int main(int argc, char* argv[]){
 	// At this stage the system clock should have already been configured
 	// at high speed.
-	myGPIOC_init();
+	myGPIOA_Init();		/* Initialize I/O port PA */
+	myTIM2_Init();		/* Initialize timer TIM2 */
+	myEXTI_Init();		/* Initialize EXTI */
+	myGPIOC_Init();
 	myADC_init();
+	myDAC_init();
+	mySPI_Init();
 
 	// Infinite loop
 	ADC1->CR |= ADC_CR_ADSTART;
 
 	while (1){
 
-		//trace_printf("Waiting for EOC...\n");
-		while((ADC1->ISR & ADC_ISR_EOSEQ) == 0);
-		//trace_printf("Reset EOC\n");
-		ADC1->ISR &= ~ADC_ISR_EOC;
-		int test = (ADC1->DR & 0x00FF);
-		trace_printf("Value: %d\n",test);
-		trace_printf("Reset EOSEQ\n");
-		//ADC1->ISR &= ~ADC_ISR_EOSEQ;
+		while((ADC1->ISR & ADC_ISR_EOSEQ) == 0);	// Wait for end of sequence
+		ADC1->ISR &= ~ADC_ISR_EOC;					// Reset end of conversation flag
+		int test = (ADC1->DR & 0x00FF);				// Read ADC data
+
+		DAC->DHR8R1 = test;							// Write to DAC ADC value
 
 	}
+
+}
+
+void myGPIOB_Init(){
+
+	/* Enable clock for GPIOC peripheral */
+		// Relevant register: RCC->AHBENR
+		RCC->AHBENR |= RCC_AHBENR_GPIOBEN;
+
+		GPIOB->AFR[0] &= 0;							// RESET AFR
+		GPIOB->AFR[1] &= 0;							// RESET AFR
+
+		// Relevant register: GPIOC->MODER
+		GPIOB->MODER |= GPIO_MODER_MODER3_1;			// SCK
+		GPIOB->MODER |= GPIO_MODER_MODER4_0;			// LCK
+		GPIOB->MODER |= GPIO_MODER_MODER5_1;			// MOSI
+
+		/* Ensure no pull-up/pull-down for PB3,4,5 */
+		// Relevant register: GPIOC->PUPDR
+		GPIOB->PUPDR &= ~(GPIO_PUPDR_PUPDR3);
+		GPIOB->PUPDR &= ~(GPIO_PUPDR_PUPDR4);
+		GPIOB->PUPDR &= ~(GPIO_PUPDR_PUPDR5);
+
+
+
+}
+
+void mySPI_Init(){
+
+	RCC->APB2ENR |= RCC_APB2ENR_SPI1EN;
+
+	myGPIOB_Init();
+
+	SPI1->CR1 |= SPI_CR1_SSM;
+
+	SPI_InitTypeDef SPI_InitStructInfo;
+	SPI_InitTypeDef* SPI_InitStruct = &SPI_InitStructInfo;
+
+	SPI_InitStruct->SPI_Direction = SPI_Direction_1Line_Tx;
+	SPI_InitStruct->SPI_Mode = SPI_Mode_Master;
+	SPI_InitStruct->SPI_DataSize = SPI_DataSize_8b;
+	SPI_InitStruct->SPI_CPOL = SPI_CPOL_Low;
+	SPI_InitStruct->SPI_CPHA = SPI_CPHA_1Edge;
+	SPI_InitStruct->SPI_NSS = SPI_NSS_Soft;
+	SPI_InitStruct->SPI_BaudRatePrescaler = SPI_BaudRatePrescaler_2;
+	SPI_InitStruct->SPI_FirstBit = SPI_FirstBit_MSB;
+	SPI_InitStruct->SPI_CRCPolynomial = 7;
+
+	SPI_Init(SPI1,SPI_InitStruct);
+
+	SPI_Cmd(SPI1,ENABLE);
+
+	uint8_t data = 0b00100000;				// Set to 4-bit interface
+	GPIOB->ODR &= ~(0x0010);				// FORCE LCK to 0;
+	while( ((SPI1->SR & SPI_SR_BSY) >> 7 ) != 0 || ((SPI1->SR & SPI_SR_TXE) >> 1) != 1);
+	SPI_SendData8(SPI1,data);
+	trace_printf("Finished writing\n");
+	while ((SPI1->SR & SPI_SR_BSY >> 7) == 1);
+	GPIOB->ODR |= 0x0010;					// FORCE LCK to 1;
+
+	uint8_t i2 = 0x28;
+	uint8_t i3 = 0x0C;
+	uint8_t i4 = 0x06;
+	uint8_t i5 = 0x01;
+
+	write_SPI(i2);
+	write_SPI(i3);
+	write_SPI(i4);
+	write_SPI(i5);
+
+	uint8_t addr = 0x80;
+
+	write_SPI(addr);
+	write_SPI((uint8_t) 'F');
+
+}
+
+void write_SPI(uint8_t data){
+
+
+	uint8_t splits[6];
+
+	splits[0] = 0x00 & ((data & 0xF0) >> 4);
+	splits[1] = 0x80 & ((data & 0xF0) >> 4);
+	splits[2] = 0x00 & ((data & 0xF0) >> 4);
+
+	splits[3] = 0x00 & (data & 0x0F);
+	splits[4] = 0x80 & (data & 0x0F);
+	splits[5] = 0x00 & (data & 0x0F);
+
+	for (int i = 0; i < 6; i++){
+		GPIOB->ODR = 0x00000000;	// FORCE LCK to 0;
+		while( ((SPI1->SR & SPI_SR_BSY) >> 7 ) != 0 || ((SPI1->SR & SPI_SR_TXE) >> 1) != 1);
+		SPI_SendData8(SPI1,splits[i]);
+		//trace_printf("wait 1 ");
+		//trace_printf("wait 2 ");
+		//trace_printf("wait 3\n");
+		while ((SPI1->SR & SPI_SR_BSY >> 7) == 1);
+		GPIOB->ODR = 0x00000010;	// FORCE LCK to 1;
+	}
+
 
 }
 
@@ -86,9 +203,6 @@ void myADC_init(){
 	ADC1->IER = 0x0000;								// Disable all interrupts
 	ADC1->CFGR1 = 0x0000;							// Ensure configuration is reset
 	ADC1->CFGR2 = 0x0000;							// Ensure configuration is reset
-
-	ADC1->IER |= ADC_IER_EOCIE;						// Enable EOC interrupts
-	ADC1->IER |= ADC_IER_ADRDYIE;					// Enable ADRDY interrupts
 
 	RCC->APB2ENR |= RCC_APB2ENR_ADC1EN;				// Activate ADC clock1
 	ADC1->CFGR2 |= ADC_CFGR2_CKMODE_1;				// Set clock mode
@@ -112,21 +226,38 @@ void myADC_init(){
 	trace_printf("ADC Ready\n");
 }
 
-void ADC1_IRQHandler(){
-
-	trace_printf("\n\n\n IT WORKED!!!! \n\n\n");
-
-}
-
 void myDAC_init(){
 	// PA4
+	GPIOA->MODER &= ~(GPIO_MODER_MODER4);			// Configure PA4 as Analog
+
 	RCC->APB1ENR |= RCC_APB1ENR_DACEN;				//Activate DAC clock
 
 	DAC->CR |= DAC_CR_EN1;							//Enable DAC
 
 }
 
-void myGPIOC_init()
+
+void myGPIOA_Init()
+{
+	//Used to detect signal from generator
+
+	/* Enable clock for GPIOA peripheral */
+	// Relevant register: RCC->AHBENR
+	RCC->AHBENR |= RCC_AHBENR_GPIOAEN;
+
+
+	/* Configure PA1 as input */
+	// Relevant register: GPIOA->MODER
+
+	GPIOA->MODER &= ~(GPIO_MODER_MODER0);
+
+	/* Ensure no pull-up/pull-down for PA1 */
+	// Relevant register: GPIOA->PUPDR
+	GPIOA->PUPDR &= ~(GPIO_PUPDR_PUPDR1);
+
+}
+
+void myGPIOC_Init()
 {
 
 	/* Enable clock for GPIOC peripheral */
@@ -142,6 +273,149 @@ void myGPIOC_init()
 	GPIOC->PUPDR &= ~(GPIO_PUPDR_PUPDR0);
 
 }
+
+void myTIM2_Init()
+{
+	//Timer setup.
+
+	/* Enable clock for TIM2 peripheral */
+	// Relevant register: RCC->APB1ENR
+
+	RCC->APB1ENR |= RCC_APB1ENR_TIM2EN;
+
+	/* Configure TIM2: buffer auto-reload, count up, stop on overflow,
+	 * enable update events, interrupt on overflow only */
+	// Relevant register: TIM2->CR1
+	TIM2->CR1 = ((uint16_t)0x008C);
+
+	/* Set clock prescaler value */
+	TIM2->PSC = myTIM2_PRESCALER;
+	/* Set auto-reloaded delay */
+	TIM2->ARR = myTIM2_PERIOD;
+
+	/* Update timer registers */
+	// Relevant register: TIM2->EGR
+	TIM2->EGR = ((uint16_t)0x0000);
+
+	// Is setting up NVIC needed?
+
+	/* Assign TIM2 interrupt priority = 0 in NVIC */
+	// Relevant register: NVIC->IP[3], or use NVIC_SetPriority
+
+	NVIC_SetPriority(TIM2_IRQn,0);
+
+	/* Enable TIM2 interrupts in NVIC */
+	// Relevant register: NVIC->ISER[0], or use NVIC_EnableIRQ
+
+	NVIC_EnableIRQ(TIM2_IRQn);
+
+	/* Enable update interrupt generation */
+	// Relevant register: TIM2->DIER
+	TIM2->DIER |= 0x1;
+
+}
+
+void myEXTI_Init()
+{
+	//Interrupt setup
+
+	/* Map EXTI1 line to PA1 */
+	// Relevant register: SYSCFG->EXTICR[0]
+	SYSCFG->EXTICR[0] = ((uint16_t)0x80);
+
+	/* EXTI1 line interrupts: set rising-edge trigger */
+	// Relevant register: EXTI->RTSR
+	EXTI->RTSR = 0xFFFFFFFF;
+
+	/* Unmask interrupts from EXTI1 line */
+	// Relevant register: EXTI->IMR
+	EXTI->IMR |= 0x2;
+
+	/* Assign EXTI1 interrupt priority = 0 in NVIC */
+	// Relevant register: NVIC->IP[1], or use NVIC_SetPriority
+	NVIC_SetPriority(EXTI0_1_IRQn,0);
+
+	/* Enable EXTI1 interrupts in NVIC */
+	// Relevant register: NVIC->ISER[0], or use NVIC_EnableIRQ
+	NVIC_EnableIRQ(EXTI0_1_IRQn);
+}
+
+void TIM2_IRQHandler()
+{
+	// Used to track time
+
+	/* Check if update interrupt flag is indeed set */
+	if ((TIM2->SR & TIM_SR_UIF) != 0)
+	{
+		trace_printf("\n*** Overflow! ***\n");
+
+		/* Clear update interrupt flag */
+		// Relevant register: TIM2->SR
+		TIM2->SR &= 0xFFBE; 			//set bit 0 & 6 to 0 and keep everything else the same
+		TIM2->CNT = 0x0;
+		/* Restart stopped timer */
+		// Relevant register: TIM2->CR1
+	}
+}
+
+void EXTI0_1_IRQHandler()
+{
+	// Interrupt Handler
+
+	// Maximum time is when TIM2 overflows:
+		// 2^32/48MHz ~= 90s
+		// 48MHz / 2^32 ~= 0.01118 Hz = F min
+		// In practice: Overflow at 0.01 Hz
+
+	// Minimum Time is when the period is smaller than the time it takes to turn off TIM2. May vary slightly.
+		// In practice: 700 kHz
+
+	/* Check if EXTI1 interrupt pending flag is indeed set */
+	if ((EXTI->PR & EXTI_PR_PR1) != 0)
+	{
+		if (FIRST_RISING_EDGE){
+			TIM2->CR1 &= 0;							//	- Stop timer (TIM2->CR1).
+			unsigned int time = TIM2->CNT;			//	- Read out count register (TIM2->CNT).
+			//	- Calculate signal period and frequency.
+			//	- Print calculated values to the console.
+			//	  NOTE: Function trace_printf does not work
+			//	  with floating-point numbers: you must use
+			//	  "unsigned int" type to print your signal
+			//	  period and frequency.
+			//
+			double period = (double) time / 48000000;
+			double frq = 1 / period;
+			trace_printf("Period: %lf s Frq: %lf Hz\n",period,frq);
+
+			// 2. Clear EXTI1 interrupt pending flag (EXTI->PR).
+			//
+
+			EXTI->PR |= EXTI_PR_PR1;				// Do we need to do this?
+			FIRST_RISING_EDGE = 0;
+
+
+		} else {
+
+
+			//
+			// 1. If this is the first edge:
+			TIM2->CNT = 0x0;						//	- Clear count register (TIM2->CNT).
+			TIM2->CR1 |= 0x1;						//	- Start timer (TIM2->CR1).
+
+			// 2. Clear EXTI1 interrupt pending flag (EXTI->PR).
+			//
+			EXTI->PR |= EXTI_PR_PR1;				// Do we need to do this?
+			FIRST_RISING_EDGE = 1;
+
+		}
+
+
+
+
+
+	}
+}
+
 
 #pragma GCC diagnostic pop
 
