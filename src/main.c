@@ -55,11 +55,15 @@ int CF;
 void myADC_init();
 void myDAC_init();
 void myGPIOC_init();
+void myGPIOB_Init();
+void mySPI_Init();
+void write_SPI(uint8_t data);
 
 int main(int argc, char* argv[]){
 	// At this stage the system clock should have already been configured
 	// at high speed.
 	myGPIOC_init();
+	mySPI_Init();
 	myADC_init();
 
 	// Infinite loop
@@ -112,12 +116,6 @@ void myADC_init(){
 	trace_printf("ADC Ready\n");
 }
 
-void ADC1_IRQHandler(){
-
-	trace_printf("\n\n\n IT WORKED!!!! \n\n\n");
-
-}
-
 void myDAC_init(){
 	// PA4
 	RCC->APB1ENR |= RCC_APB1ENR_DACEN;				//Activate DAC clock
@@ -142,6 +140,108 @@ void myGPIOC_init()
 	GPIOC->PUPDR &= ~(GPIO_PUPDR_PUPDR0);
 
 }
+
+void myGPIOB_Init(){
+
+	/* Enable clock for GPIOC peripheral */
+		// Relevant register: RCC->AHBENR
+		RCC->AHBENR |= RCC_AHBENR_GPIOBEN;
+
+		GPIOB->AFR[0] &= 0;							// RESET AFR
+		GPIOB->AFR[1] &= 0;							// RESET AFR
+
+		// Relevant register: GPIOC->MODER
+		GPIOB->MODER |= GPIO_MODER_MODER3_1;			// SCK
+		GPIOB->MODER |= GPIO_MODER_MODER4_0;			// LCK
+		GPIOB->MODER |= GPIO_MODER_MODER5_1;			// MOSI
+
+		/* Ensure no pull-up/pull-down for PB3,4,5 */
+		// Relevant register: GPIOC->PUPDR
+		GPIOB->PUPDR &= ~(GPIO_PUPDR_PUPDR3);
+		GPIOB->PUPDR &= ~(GPIO_PUPDR_PUPDR4);
+		GPIOB->PUPDR &= ~(GPIO_PUPDR_PUPDR5);
+
+
+
+}
+
+void mySPI_Init(){
+
+	RCC->APB2ENR |= RCC_APB2ENR_SPI1EN;
+
+	myGPIOB_Init();
+
+	SPI1->CR1 |= SPI_CR1_SSM;
+
+	SPI_InitTypeDef SPI_InitStructInfo;
+	SPI_InitTypeDef* SPI_InitStruct = &SPI_InitStructInfo;
+
+	SPI_InitStruct->SPI_Direction = SPI_Direction_1Line_Tx;
+	SPI_InitStruct->SPI_Mode = SPI_Mode_Master;
+	SPI_InitStruct->SPI_DataSize = SPI_DataSize_8b;
+	SPI_InitStruct->SPI_CPOL = SPI_CPOL_Low;
+	SPI_InitStruct->SPI_CPHA = SPI_CPHA_1Edge;
+	SPI_InitStruct->SPI_NSS = SPI_NSS_Soft;
+	SPI_InitStruct->SPI_BaudRatePrescaler = SPI_BaudRatePrescaler_2;
+	SPI_InitStruct->SPI_FirstBit = SPI_FirstBit_MSB;
+	SPI_InitStruct->SPI_CRCPolynomial = 7;
+
+	SPI_Init(SPI1,SPI_InitStruct);
+
+	SPI_Cmd(SPI1,ENABLE);
+
+	uint8_t data = 0b00100000;				// Set to 4-bit interface
+	GPIOB->ODR &= ~(0x0010);				// FORCE LCK to 0;
+	while( ((SPI1->SR & SPI_SR_BSY) >> 7 ) != 0 || ((SPI1->SR & SPI_SR_TXE) >> 1) != 1);
+	SPI_SendData8(SPI1,data);
+	trace_printf("Finished writing\n");
+	while ((SPI1->SR & SPI_SR_BSY >> 7) == 1);
+	GPIOB->ODR |= 0x0010;					// FORCE LCK to 1;
+
+	uint8_t i2 = 0x28;
+	uint8_t i3 = 0x0C;
+	uint8_t i4 = 0x06;
+	uint8_t i5 = 0x01;
+
+	write_SPI(i2);
+	write_SPI(i3);
+	write_SPI(i4);
+	write_SPI(i5);
+
+	uint8_t addr = 0x80;
+
+	write_SPI(addr);
+	write_SPI((uint8_t) 'F');
+
+}
+
+void write_SPI(uint8_t data){
+
+
+	uint8_t splits[6];
+
+	splits[0] = 0x00 & ((data & 0xF0) >> 4);
+	splits[1] = 0x80 & ((data & 0xF0) >> 4);
+	splits[2] = 0x00 & ((data & 0xF0) >> 4);
+
+	splits[3] = 0x00 & (data & 0x0F);
+	splits[4] = 0x80 & (data & 0x0F);
+	splits[5] = 0x00 & (data & 0x0F);
+
+	for (int i = 0; i < 6; i++){
+		GPIOB->ODR = 0x00000000;	// FORCE LCK to 0;
+		while( ((SPI1->SR & SPI_SR_BSY) >> 7 ) != 0 || ((SPI1->SR & SPI_SR_TXE) >> 1) != 1);
+		SPI_SendData8(SPI1,splits[i]);
+		trace_printf("wait 1 ");
+		trace_printf("wait 2 ");
+		trace_printf("wait 3\n");
+		while ((SPI1->SR & SPI_SR_BSY >> 7) == 1);
+		GPIOB->ODR = 0x00000010;	// FORCE LCK to 1;
+	}
+
+
+}
+
 
 #pragma GCC diagnostic pop
 
