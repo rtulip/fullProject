@@ -119,31 +119,11 @@ void myGPIOB_Init(){
 
 }
 
-void mySPI_Init(){
-
-	RCC->APB2ENR |= RCC_APB2ENR_SPI1EN;
+void myLCD_Init(){
 
 	myGPIOB_Init();
-
-	SPI1->CR1 |= SPI_CR1_SSM;
-
-	SPI_InitTypeDef SPI_InitStructInfo;
-	SPI_InitTypeDef* SPI_InitStruct = &SPI_InitStructInfo;
-
-	SPI_InitStruct->SPI_Direction = SPI_Direction_1Line_Tx;
-	SPI_InitStruct->SPI_Mode = SPI_Mode_Master;
-	SPI_InitStruct->SPI_DataSize = SPI_DataSize_8b;
-	SPI_InitStruct->SPI_CPOL = SPI_CPOL_Low;
-	SPI_InitStruct->SPI_CPHA = SPI_CPHA_1Edge;
-	SPI_InitStruct->SPI_NSS = SPI_NSS_Soft;
-	SPI_InitStruct->SPI_BaudRatePrescaler = SPI_BaudRatePrescaler_2;
-	SPI_InitStruct->SPI_FirstBit = SPI_FirstBit_MSB;
-	SPI_InitStruct->SPI_CRCPolynomial = 7;
-
-	SPI_Init(SPI1,SPI_InitStruct);
-
-	SPI_Cmd(SPI1,ENABLE);
-
+	mySPI_Init();
+	
 	uint8_t data = 0b00100000;				// Set to 4-bit interface
 	GPIOB->ODR &= ~(0x0010);				// FORCE LCK to 0;
 	while( ((SPI1->SR & SPI_SR_BSY) >> 7 ) != 0 || ((SPI1->SR & SPI_SR_TXE) >> 1) != 1);
@@ -166,6 +146,32 @@ void mySPI_Init(){
 
 	write_SPI(addr);
 	write_SPI((uint8_t) 'F');
+
+
+}
+
+void mySPI_Init(){
+
+	RCC->APB2ENR |= RCC_APB2ENR_SPI1EN;
+
+	SPI1->CR1 |= SPI_CR1_SSM;
+
+	SPI_InitTypeDef SPI_InitStructInfo;
+	SPI_InitTypeDef* SPI_InitStruct = &SPI_InitStructInfo;
+
+	SPI_InitStruct->SPI_Direction = SPI_Direction_1Line_Tx;
+	SPI_InitStruct->SPI_Mode = SPI_Mode_Master;
+	SPI_InitStruct->SPI_DataSize = SPI_DataSize_8b;
+	SPI_InitStruct->SPI_CPOL = SPI_CPOL_Low;
+	SPI_InitStruct->SPI_CPHA = SPI_CPHA_1Edge;
+	SPI_InitStruct->SPI_NSS = SPI_NSS_Soft;
+	SPI_InitStruct->SPI_BaudRatePrescaler = SPI_BaudRatePrescaler_2;
+	SPI_InitStruct->SPI_FirstBit = SPI_FirstBit_MSB;
+	SPI_InitStruct->SPI_CRCPolynomial = 7;
+
+	SPI_Init(SPI1,SPI_InitStruct);
+
+	SPI_Cmd(SPI1,ENABLE);
 
 }
 
