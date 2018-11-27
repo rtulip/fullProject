@@ -79,6 +79,7 @@ void write_LCD(uint8_t rs,uint8_t data);
 void write_LCD_HZ(int value);
 void write_LCD_OH(int value);
 void clear_LCD();
+void update_LCD();
 void set_LCD_ADDR(uint8_t addr);
 int SPI_BSY(SPI_TypeDef* SPIx);
 int SPI_TXE(SPI_TypeDef* SPIx);
@@ -99,33 +100,32 @@ int main(int argc, char* argv[]){
 
 	while (1){
 
-		while((ADC1->ISR & ADC_ISR_EOSEQ) == 0);	// Wait for end of sequence
-		ADC1->ISR &= ~ADC_ISR_EOC;					// Reset end of conversation flag
-		int test = (ADC1->DR & 0x00FF);				// Read ADC data
-		double res = 5000 + ((double) test/255.0)*5000;
-		trace_printf("voltage: %d, Res: %lf\n",test,res);
-
+		while((ADC1->ISR & ADC_ISR_EOSEQ) == 0);			// Wait for end of sequence
+		ADC1->ISR &= ~ADC_ISR_EOC;							// Reset end of conversation flag
+		int voltage = (ADC1->DR & 0x00FF);					// Read ADC data
+		double res = 5000 + ((double) voltage/255.0)*5000;	// Calculate resistance
 		GLOBAL_RES = (int) res;
-		DAC->DHR8R1 = test;							// Write to DAC ADC value
-		write_LCD_HZ(GLOBAL_FRQ);
-		write_LCD_OH(GLOBAL_RES);
+		DAC->DHR8R1 = test;									// Write ADC value to DAC
+		
+		update_LCD();
+
 	}
 
 }
 
-void myGPIOB_Init(){
+void myGPIOB_Init(){										// GPIOB Used for SPI communication
 
 	/* Enable clock for GPIOC peripheral */
 		// Relevant register: RCC->AHBENR
 		RCC->AHBENR |= RCC_AHBENR_GPIOBEN;
 
-		GPIOB->AFR[0] &= 0;							// RESET AFR
-		GPIOB->AFR[1] &= 0;							// RESET AFR
+		GPIOB->AFR[0] &= 0;									// RESET AFR
+		GPIOB->AFR[1] &= 0;									// RESET AFR
 
 		// Relevant register: GPIOC->MODER
-		GPIOB->MODER |= GPIO_MODER_MODER3_1;			// SCK
-		GPIOB->MODER |= GPIO_MODER_MODER4_0;			// LCK
-		GPIOB->MODER |= GPIO_MODER_MODER5_1;			// MOSI
+		GPIOB->MODER |= GPIO_MODER_MODER3_1;				// SCK  -> Alternate Function
+		GPIOB->MODER |= GPIO_MODER_MODER4_0;				// LCK  -> Output
+		GPIOB->MODER |= GPIO_MODER_MODER5_1;				// MOSI -> Alternate Function
 
 		/* Ensure no pull-up/pull-down for PB3,4,5 */
 		// Relevant register: GPIOC->PUPDR
@@ -133,35 +133,29 @@ void myGPIOB_Init(){
 		GPIOB->PUPDR &= ~(GPIO_PUPDR_PUPDR4);
 		GPIOB->PUPDR &= ~(GPIO_PUPDR_PUPDR5);
 
-
-
 }
 
-void myLCD_Init(){
+void myLCD_Init(){											// Setup LCD
 
-	myGPIOB_Init();
-	mySPI_Init();
+	myGPIOB_Init();											// Init GPIOB
+	mySPI_Init();											// Init SPI
+	myTIM3_Init();											// Init TIM3	
+
+	write_LCD(LCD_RS_0, 0x02);								// Set to 4-bit interface
+	write_LCD(LCD_RS_0, 0x28);								// DL = 0, N = 1, F = 0
+	write_LCD(LCD_RS_0, 0x0C);								// D = 1, C = 0, B = 0
+	write_LCD(LCD_RS_0, 0x06);								// I/D = 1, S = 0
+	clear_LCD();											// Clear Display
+
 	
-	write_LCD(LCD_RS_0, 0x02);					// Set to 4-bit interface
-	write_LCD(LCD_RS_0, 0x28);					// DL = 0, N = 1, F = 0
-	write_LCD(LCD_RS_0, 0x0C);					// D = 1, C = 0, B = 0
-	write_LCD(LCD_RS_0, 0x06);					// I/D = 1, S = 0
-	clear_LCD();								// Clear Display
-
-	write_LCD_HZ(2700);
-	write_LCD_OH(4255);
-
-	myTIM3_Init();
-
 }
 
 void mySPI_Init(){
 
-	RCC->APB2ENR |= RCC_APB2ENR_SPI1EN;
+	RCC->APB2ENR |= RCC_APB2ENR_SPI1EN;						// Enable SPI1 clock
 
-	//SPI1->CR1 |= SPI_CR1_SSM;				// Is this needed?
-	SPI_InitTypeDef SPI_InitStructInfo;
-	SPI_InitTypeDef* SPI_InitStruct = &SPI_InitStructInfo;
+	SPI_InitTypeDef SPI_InitStructInfo;					
+	SPI_InitTypeDef* SPI_InitStruct = &SPI_InitStructInfo;	// Create struct to initiate SPI
 
 	SPI_InitStruct->SPI_Direction = SPI_Direction_1Line_Tx;
 	SPI_InitStruct->SPI_Mode = SPI_Mode_Master;
@@ -173,66 +167,64 @@ void mySPI_Init(){
 	SPI_InitStruct->SPI_FirstBit = SPI_FirstBit_MSB;
 	SPI_InitStruct->SPI_CRCPolynomial = 7;
 
-	SPI_Init(SPI1,SPI_InitStruct);
-	SPI_Cmd(SPI1,ENABLE);
+	SPI_Init(SPI1,SPI_InitStruct);							// Init SPI with SPI_InitStruct
+	SPI_Cmd(SPI1,ENABLE);									// Enable SPI1
 
 }
 
-void write_LCD(uint8_t RS, uint8_t data){
+void write_LCD(uint8_t RS, uint8_t data){					// Function to write to LCD.
 
-	uint8_t splits[6];
+	uint8_t splits[6];										// Splits data into 6 different messages
 
-	uint8_t H = ((data & 0xF0) >> 4);
-	uint8_t L = (data & 0x0F);
+	uint8_t H = ((data & 0xF0) >> 4);						// High end of data
+	uint8_t L = (data & 0x0F);								// Low end of data
 
-	uint8_t ENABLE = 0x80;
-	uint8_t DISABLE = 0x00;
+	uint8_t ENABLE = 0x80;									// Sequence Enable bit
+	uint8_t DISABLE = 0x00;									// Sequence Disable bit
 
-	splits[0] = DISABLE | RS | H;				// High Disable	
-	splits[1] = ENABLE  | RS | H;				// High Enable
-	splits[2] = DISABLE | RS | H;				// High Disable
+	splits[0] = DISABLE | RS | H;							// High Disable	
+	splits[1] = ENABLE  | RS | H;							// High Enable
+	splits[2] = DISABLE | RS | H;							// High Disable
 
-	splits[3] = DISABLE | RS | L;				// High Disable	
-	splits[4] = ENABLE  | RS | L;				// High Enable
-	splits[5] = DISABLE | RS | L;				// High Disable
+	splits[3] = DISABLE | RS | L;							// High Disable	
+	splits[4] = ENABLE  | RS | L;							// High Enable
+	splits[5] = DISABLE | RS | L;							// High Disable
 
 	for (int i = 0; i < 6; i++){
-		GPIOB->BRR = 0x10;							// FORCE LCK to 0;
-		while( SPI_BSY(SPI1) || !SPI_TXE(SPI1) );	//
-		SPI_SendData8(SPI1,splits[i]);
-		while( SPI_BSY(SPI1) );
-		GPIOB->BSRR = 0x10;							// FORCE LCK to 1;
+		GPIOB->BRR = 0x10;									// Force LCK to 0;
+		while( SPI_BSY(SPI1) || !SPI_TXE(SPI1) );			// Wait while SPI is busy or no room on TXE
+		SPI_SendData8(SPI1,splits[i]);						// Send split[i] over SPI1
+		while( SPI_BSY(SPI1) );								// Wait while SPI is busy
+		GPIOB->BSRR = 0x10;									// Force LCK to 1;
 	}
-	//trace_printf("waiting... \n");
-	//trace_printf("waiting... \n");
-
 
 }
 
-void set_LCD_ADDR(uint8_t addr){
+void set_LCD_ADDR(uint8_t addr){							// Function to set the address of LCD
 
-	write_LCD(LCD_RS_0, addr | 0x80);
+	// Should check for address in bounds
+
+	write_LCD(LCD_RS_0, addr | 0x80);						// Sends addr | 0x80
 
 }
 
-void write_LCD_HZ(int value){
+void write_LCD_HZ(int value){								// Function to set Hz value
+	// Should check in bounds 
 
-	uint8_t addr = 0x00;
+	uint8_t addr = 0x00;									// Addresss of start of 1st row
 
-	int thou = value / 1000;
-	int hund = (value / 100 ) % 10;
-	int tens = (value / 10) % 10;
-	int ones = (value % 10);
+	int thou = value / 1000;								// Calculates thousands
+	int hund = (value / 100 ) % 10;							// Calculates hundreds
+	int tens = (value / 10) % 10;							// Calculates tens
+	int ones = (value % 10);								// Calculates ones
 
-	int ascii_offset = 0x30;
+	int ascii_offset = 0x30;								// ASCII digit offset
 
-	//trace_printf("1000s: %d 100s: %d 10s: %d 1s: %d\n",thou,hund,tens,ones);
-
-	set_LCD_ADDR(addr);
-	write_LCD(LCD_RS_1, (uint8_t) 'F');
-	addr++;
-	set_LCD_ADDR(addr);
-	write_LCD(LCD_RS_1, (uint8_t) ':');
+	set_LCD_ADDR(addr);										// Set address
+	write_LCD(LCD_RS_1, (uint8_t) 'F');						// Write letter
+	addr++;													// Increment address
+	set_LCD_ADDR(addr);										// Repeat ...
+	write_LCD(LCD_RS_1, (uint8_t) ':');	
 	addr++;
 	set_LCD_ADDR(addr);
 	write_LCD(LCD_RS_1, (uint8_t) (thou + ascii_offset));
@@ -253,27 +245,25 @@ void write_LCD_HZ(int value){
 	write_LCD(LCD_RS_1, (uint8_t) 'z');
 	addr++;
 
-
-
 }
 
-void write_LCD_OH(int value){
+void write_LCD_OH(int value){								// Function to set the Oh value
 
-	uint8_t addr = 0x40;
+	// Should check to see if in bounds
 
-	int thou = value / 1000;
+	uint8_t addr = 0x40;									// Address of start of 2nd row
+
+	int thou = value / 1000;								// Same as in write_LCD_HZ
 	int hund = (value / 100 ) % 10;
 	int tens = (value / 10) % 10;
 	int ones = (value % 10);
 
-	int ascii_offset = 0x30;
+	int ascii_offset = 0x30;								// ASCII digit offset 
 
-	//trace_printf("1000s: %d 100s: %d 10s: %d 1s: %d\n",thou,hund,tens,ones);
-
-	set_LCD_ADDR(addr);
-	write_LCD(LCD_RS_1, (uint8_t) 'R');
-	addr++;
-	set_LCD_ADDR(addr);
+	set_LCD_ADDR(addr);										// Set address
+	write_LCD(LCD_RS_1, (uint8_t) 'R');						// Write to address
+	addr++;													// Increment address
+	set_LCD_ADDR(addr);										// Repeat ...
 	write_LCD(LCD_RS_1, (uint8_t) ':');
 	addr++;
 	set_LCD_ADDR(addr);
@@ -295,68 +285,74 @@ void write_LCD_OH(int value){
 	write_LCD(LCD_RS_1, (uint8_t) 'h');
 	addr++;
 
+}
+
+void clear_LCD(){											// Function to clear display
+
+	write_LCD(LCD_RS_0, 0x01);								// Writes 0x01 to LCD with RS = 0
+	trace_printf("Clearing... \n");							// Print statement for delay
+	trace_printf("Clearing... \n");							// Print statement for delay
 
 }
 
-void clear_LCD(){
-	write_LCD(LCD_RS_0, 0x01);
-	trace_printf("Clearing... \n");
-	trace_printf("Clearing... \n");
-	// need to wait for a few ms
+void update_LCD(){											// Function to update the LCD 
+	
+	write_LCD_HZ(GLOBAL_FRQ);								// Write global frequency
+	write_LCD_OH(GLOBAL_RES);								// Write global resistance
 
 }
 
-int SPI_BSY(SPI_TypeDef* SPIx){
+int SPI_BSY(SPI_TypeDef* SPIx){								// Function to check if SPI_BSY flag set 
 
 	return (SPI_I2S_GetFlagStatus(SPIx,SPI_SR_BSY) == SET);
 
 }
 
-int SPI_TXE(SPI_TypeDef* SPIx){
+int SPI_TXE(SPI_TypeDef* SPIx){								// Function to check if SPI_TXE flag set 
 
 	return (SPI_I2S_GetFlagStatus(SPIx, SPI_SR_TXE) == SET);
 
 }
 
-void myADC_init(){
+void myADC_init(){											
 
 	// USE PC0 (ADC_IN10)
-	ADC1->ISR = 0x0000;								// Ensure ADC_ISR is reset
-	ADC1->IER = 0x0000;								// Disable all interrupts
-	ADC1->CFGR1 = 0x0000;							// Ensure configuration is reset
-	ADC1->CFGR2 = 0x0000;							// Ensure configuration is reset
 
-	RCC->APB2ENR |= RCC_APB2ENR_ADC1EN;				// Activate ADC clock1
-	ADC1->CFGR2 |= ADC_CFGR2_CKMODE_1;				// Set clock mode
+	ADC1->ISR = 0x0000;										// Ensure ADC_ISR is reset
+	ADC1->IER = 0x0000;										// Disable all interrupts
+	ADC1->CFGR1 = 0x0000;									// Ensure configuration is reset
+	ADC1->CFGR2 = 0x0000;									// Ensure configuration is reset
 
-	ADC1->CFGR1 |= ADC_CFGR1_CONT;					// Set to continuous mode
-	ADC1->CFGR1 |= ADC_CFGR1_RES_1;					// Set resolution of conversation to 8bit
+	RCC->APB2ENR |= RCC_APB2ENR_ADC1EN;						// Activate ADC clock1
+	ADC1->CFGR2 |= ADC_CFGR2_CKMODE_1;						// Set clock mode
 
-	ADC1->SMPR |= ADC_SMPR1_SMPR;					// Set lowest sampling rate
+	ADC1->CFGR1 |= ADC_CFGR1_CONT;							// Set to continuous mode
+	ADC1->CFGR1 |= ADC_CFGR1_RES_1;							// Set resolution of conversation to 8bit
 
-	ADC1->CHSELR = 0x0400;							// Select Channel 10
-	ADC1->CR = 0x0000;								// Ensure ADC_CR_ADEN == 0
-	ADC1->CR |= ADC_CR_ADCAL;						// Set ADC_CR_ADCAL to 1
+	ADC1->SMPR |= ADC_SMPR1_SMPR;							// Set lowest sampling rate
 
-	while(((ADC1->CR & ADC_CR_ADCAL) << 1) == 1);	// Wait for ADCAL to == 0
+	ADC1->CHSELR = 0x0400;									// Select Channel 10
+	ADC1->CR = 0x0000;										// Ensure ADC_CR_ADEN == 0
+	ADC1->CR |= ADC_CR_ADCAL;								// Set ADC_CR_ADCAL to 1
 
-	CF = (ADC1->DR & 0x007F);						// Read calibration factor
+	while(((ADC1->CR & ADC_CR_ADCAL) << 1) == 1);			// Wait for ADCAL to == 0
+
+	CF = (ADC1->DR & 0x007F);								// Read calibration factor
 	trace_printf("Calibrated: %d\n",CF);
-													// ENABLE ADC
-	ADC1->CR |= ADC_CR_ADEN;						// Raise ADC_CR_ADEN to 1
-	while((ADC1->ISR & ADC_ISR_ADRDY) == 0);		// Wait for ADRDY to == 1
+															// ENABLE ADC
+	ADC1->CR |= ADC_CR_ADEN;								// Raise ADC_CR_ADEN to 1
+	while((ADC1->ISR & ADC_ISR_ADRDY) == 0);				// Wait for ADRDY to == 1
 	trace_printf("ADC Ready\n");
+
 }
-
-
 
 void myDAC_init(){
 	// PA4
-	GPIOA->MODER &= ~(GPIO_MODER_MODER4);			// Configure PA4 as Analog
+	GPIOA->MODER &= ~(GPIO_MODER_MODER4);					// Configure PA4 as Analog
 
-	RCC->APB1ENR |= RCC_APB1ENR_DACEN;				//Activate DAC clock
+	RCC->APB1ENR |= RCC_APB1ENR_DACEN;						// Activate DAC clock
 
-	DAC->CR |= DAC_CR_EN1;							//Enable DAC
+	DAC->CR |= DAC_CR_EN1;									// Enable DAC
 
 }
 
@@ -582,7 +578,7 @@ void EXTI0_1_IRQHandler()
 			// 2. Clear EXTI1 interrupt pending flag (EXTI->PR).
 			//
 
-			EXTI->PR |= EXTI_PR_PR1;				// Do we need to do this?
+			EXTI->PR |= EXTI_PR_PR1;				
 			FIRST_RISING_EDGE = 0;
 
 
