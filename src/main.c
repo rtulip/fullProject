@@ -60,7 +60,6 @@ double GLOBAL_RES = 0;
 #define myTIM2_PRESCALER ((uint16_t)0x0000)
 /* Maximum possible setting for overflow */
 #define myTIM2_PERIOD ((uint32_t)0xFFFFFFFF)
-#define myTIM3_PERIOD ((uint32_t)0x3840)
 
 #define LCD_RS_0 0x0
 #define LCD_RS_1 0x40
@@ -69,7 +68,6 @@ void myGPIOA_Init(void);
 void myGPIOB_Init(void);
 void myGPIOC_Init(void);
 void myTIM2_Init(void);
-void myTIM3_Init(void);
 void myEXTI_Init(void);
 void myADC_init();
 void myDAC_init();
@@ -103,9 +101,12 @@ int main(int argc, char* argv[]){
 		while((ADC1->ISR & ADC_ISR_EOSEQ) == 0);			// Wait for end of sequence
 		ADC1->ISR &= ~ADC_ISR_EOC;							// Reset end of conversation flag
 		int voltage = (ADC1->DR & 0x00FF);					// Read ADC data
+
+		trace_printf("voltage: %d\n",voltage);
+
 		double res = 5000 + ((double) voltage/255.0)*5000;	// Calculate resistance
 		GLOBAL_RES = (int) res;
-		DAC->DHR8R1 = test;									// Write ADC value to DAC
+		DAC->DHR8R1 = res;									// Write ADC value to DAC
 		
 		update_LCD();
 
@@ -139,7 +140,6 @@ void myLCD_Init(){											// Setup LCD
 
 	myGPIOB_Init();											// Init GPIOB
 	mySPI_Init();											// Init SPI
-	myTIM3_Init();											// Init TIM3	
 
 	write_LCD(LCD_RS_0, 0x02);								// Set to 4-bit interface
 	write_LCD(LCD_RS_0, 0x28);								// DL = 0, N = 1, F = 0
@@ -174,10 +174,10 @@ void myLCD_Init(){											// Setup LCD
 	addr = 0x46;											// Address of 2nd last location on 2nd row
 
 	set_LCD_ADDR(addr);										
-	write_LCD(LCD_RS_1, (uint8_t) 'H');						
+	write_LCD(LCD_RS_1, (uint8_t) 'O');
 	addr++;													
 	set_LCD_ADDR(addr);										
-	write_LCD(LCD_RS_1, (uint8_t) 'z');
+	write_LCD(LCD_RS_1, (uint8_t) 'h');
 
 
 	
@@ -235,14 +235,23 @@ void write_LCD(uint8_t RS, uint8_t data){					// Function to write to LCD.
 
 void set_LCD_ADDR(uint8_t addr){							// Function to set the address of LCD
 
-	// Should check for address in bounds
+	if ( (addr > 0x07 && addr < 0x40) || addr > 0x47){		// Check that address in bounds
+
+		trace_printf("address out of bounds\n");
+
+	}
 
 	write_LCD(LCD_RS_0, addr | 0x80);						// Sends addr | 0x80
 
 }
 
 void write_LCD_HZ(int value){								// Function to set Hz value
-	// Should check in bounds 
+
+	if (value > 10000){
+
+		value = 9999;
+
+	}
 
 	uint8_t addr = 0x02;									// Addresss of 2nd location of 1st row
 
@@ -270,6 +279,12 @@ void write_LCD_HZ(int value){								// Function to set Hz value
 void write_LCD_OH(int value){								// Function to set the Oh value
 
 	// Should check to see if in bounds
+
+	if (value >= 10000){
+
+		value = 9999;
+
+	}
 
 	uint8_t addr = 0x42;									// Address of 2nd location of 2nd row
 
@@ -363,7 +378,6 @@ void myDAC_init(){
 
 }
 
-
 void myGPIOA_Init()
 {
 	//Used to detect signal from generator
@@ -401,7 +415,7 @@ void myGPIOC_Init()
 
 }
 
-myTIM2_Init(){
+void myTIM2_Init(void){
 	//Timer setup.
 
 	/* Enable clock for TIM2 peripheral */
@@ -433,54 +447,11 @@ myTIM2_Init(){
 	/* Enable TIM2 interrupts in NVIC */
 	// Relevant register: NVIC->ISER[0], or use NVIC_EnableIRQ
 
-	NVIC_EnableIRQ(TIM2_IRQn);
+	//NVIC_EnableIRQ(TIM2_IRQn);
 
 	/* Enable update interrupt generation */
 	// Relevant register: TIM2->DIER
 	TIM2->DIER |= 0x1;
-
-}
-
-void myTIM3_Init()
-{
-	//Timer setup.
-
-	/* Enable clock for TIM2 peripheral */
-	// Relevant register: RCC->APB1ENR
-
-	RCC->APB1ENR |= RCC_APB1ENR_TIM3EN;
-
-	/* Configure TIM2: buffer auto-reload, count up, stop on overflow,
-	 * enable update events, interrupt on overflow only */
-	// Relevant register: TIM2->CR1
-	TIM3->CR1 = ((uint16_t)0x009C);
-
-	/* Set clock prescaler value */
-	TIM3->PSC = myTIM2_PRESCALER;
-	/* Set auto-reloaded delay */
-	TIM3->ARR = myTIM3_PERIOD;
-
-	/* Update timer registers */
-	// Relevant register: TIM2->EGR
-	TIM3->EGR = ((uint16_t)0x0000);
-
-	// Is setting up NVIC needed?
-
-	/* Assign TIM2 interrupt priority = 0 in NVIC */
-	// Relevant register: NVIC->IP[3], or use NVIC_SetPriority
-
-	NVIC_SetPriority(TIM3_IRQn,0);
-
-	/* Enable TIM2 interrupts in NVIC */
-	// Relevant register: NVIC->ISER[0], or use NVIC_EnableIRQ
-
-	NVIC_EnableIRQ(TIM3_IRQn);
-
-	/* Enable update interrupt generation */
-	// Relevant register: TIM2->DIER
-	TIM3->DIER |= 0x1;
-
-	//TIM3->CR1 |= 0x1;
 
 }
 
@@ -527,29 +498,6 @@ void TIM2_IRQHandler()
 	}
 }
 
-void TIM3_IRQHandler()
-{
-	// Used to update display
-
-	/* Check if update interrupt flag is indeed set */
-	if ((TIM3->SR & TIM_SR_UIF) != 0)
-	{
-		trace_printf("\n*** Overflow! ***\n");
-
-		/* Clear update interrupt flag */
-		// Relevant register: TIM2->SR
-
-		//write_LCD_HZ(GLOBAL_FRQ);
-
-		TIM3->SR &= 0xFFBE; 			//set bit 0 & 6 to 0 and keep everything else the same
-		TIM3->CNT = 0x0;
-		TIM3->CR1 |= 0x1;
-		/* Restart stopped timer */
-		// Relevant register: TIM2->CR1
-	}
-}
-
-
 void EXTI0_1_IRQHandler()
 {
 	// Interrupt Handler
@@ -580,7 +528,7 @@ void EXTI0_1_IRQHandler()
 
 			GLOBAL_FRQ = (int) frq;
 
-			//trace_printf("Period: %lf s Frq: %lf Hz\n",period,frq);
+			trace_printf("Period: %lf s Frq: %lf Hz\n",period,frq);
 
 			// 2. Clear EXTI1 interrupt pending flag (EXTI->PR).
 			//
