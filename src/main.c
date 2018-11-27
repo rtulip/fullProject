@@ -147,6 +147,39 @@ void myLCD_Init(){											// Setup LCD
 	write_LCD(LCD_RS_0, 0x06);								// I/D = 1, S = 0
 	clear_LCD();											// Clear Display
 
+	uint8_t addr = 0x00;									// Address of 1st location 1st row
+	
+	set_LCD_ADDR(addr);										// Set address
+	write_LCD(LCD_RS_1, (uint8_t) 'F');						// Write letter
+	addr++;													// Increment address
+	set_LCD_ADDR(addr);										// Repeat ...
+	write_LCD(LCD_RS_1, (uint8_t) ':');
+	
+	addr = 0x06;											// Address of 2nd last display location
+
+	set_LCD_ADDR(addr);										
+	write_LCD(LCD_RS_1, (uint8_t) 'H');						
+	addr++;													
+	set_LCD_ADDR(addr);										
+	write_LCD(LCD_RS_1, (uint8_t) 'z');
+ 
+	addr = 0x40;											// Address of 1st location on 2nd row
+
+	set_LCD_ADDR(addr);										
+	write_LCD(LCD_RS_1, (uint8_t) 'R');						
+	addr++;													
+	set_LCD_ADDR(addr);										
+	write_LCD(LCD_RS_1, (uint8_t) ':');
+
+	addr = 0x46;											// Address of 2nd last location on 2nd row
+
+	set_LCD_ADDR(addr);										
+	write_LCD(LCD_RS_1, (uint8_t) 'H');						
+	addr++;													
+	set_LCD_ADDR(addr);										
+	write_LCD(LCD_RS_1, (uint8_t) 'z');
+
+
 	
 }
 
@@ -211,7 +244,7 @@ void set_LCD_ADDR(uint8_t addr){							// Function to set the address of LCD
 void write_LCD_HZ(int value){								// Function to set Hz value
 	// Should check in bounds 
 
-	uint8_t addr = 0x00;									// Addresss of start of 1st row
+	uint8_t addr = 0x02;									// Addresss of 2nd location of 1st row
 
 	int thou = value / 1000;								// Calculates thousands
 	int hund = (value / 100 ) % 10;							// Calculates hundreds
@@ -221,29 +254,16 @@ void write_LCD_HZ(int value){								// Function to set Hz value
 	int ascii_offset = 0x30;								// ASCII digit offset
 
 	set_LCD_ADDR(addr);										// Set address
-	write_LCD(LCD_RS_1, (uint8_t) 'F');						// Write letter
+	write_LCD(LCD_RS_1, (uint8_t) (thou + ascii_offset));	// Write number
 	addr++;													// Increment address
 	set_LCD_ADDR(addr);										// Repeat ...
-	write_LCD(LCD_RS_1, (uint8_t) ':');	
+	write_LCD(LCD_RS_1, (uint8_t) (hund + ascii_offset));
 	addr++;
 	set_LCD_ADDR(addr);
-	write_LCD(LCD_RS_1, (uint8_t) (thou + ascii_offset));
+	write_LCD(LCD_RS_1, (uint8_t) (tens + ascii_offset));
 	addr++;
 	set_LCD_ADDR(addr);
-	write_LCD(LCD_RS_1, (uint8_t) (hund+ascii_offset));
-	addr++;
-	set_LCD_ADDR(addr);
-	write_LCD(LCD_RS_1, (uint8_t) (tens+ascii_offset));
-	addr++;
-	set_LCD_ADDR(addr);
-	write_LCD(LCD_RS_1, (uint8_t) (ones+ascii_offset));
-	addr++;
-	set_LCD_ADDR(addr);
-	write_LCD(LCD_RS_1, (uint8_t) 'H');
-	addr++;
-	set_LCD_ADDR(addr);
-	write_LCD(LCD_RS_1, (uint8_t) 'z');
-	addr++;
+	write_LCD(LCD_RS_1, (uint8_t) (ones + ascii_offset));
 
 }
 
@@ -251,7 +271,7 @@ void write_LCD_OH(int value){								// Function to set the Oh value
 
 	// Should check to see if in bounds
 
-	uint8_t addr = 0x40;									// Address of start of 2nd row
+	uint8_t addr = 0x42;									// Address of 2nd location of 2nd row
 
 	int thou = value / 1000;								// Same as in write_LCD_HZ
 	int hund = (value / 100 ) % 10;
@@ -261,15 +281,9 @@ void write_LCD_OH(int value){								// Function to set the Oh value
 	int ascii_offset = 0x30;								// ASCII digit offset 
 
 	set_LCD_ADDR(addr);										// Set address
-	write_LCD(LCD_RS_1, (uint8_t) 'R');						// Write to address
-	addr++;													// Increment address
+	write_LCD(LCD_RS_1, (uint8_t) (thou + ascii_offset));	// Write number
+	addr++;													// Increment Address
 	set_LCD_ADDR(addr);										// Repeat ...
-	write_LCD(LCD_RS_1, (uint8_t) ':');
-	addr++;
-	set_LCD_ADDR(addr);
-	write_LCD(LCD_RS_1, (uint8_t) (thou + ascii_offset));
-	addr++;
-	set_LCD_ADDR(addr);
 	write_LCD(LCD_RS_1, (uint8_t) (hund+ascii_offset));
 	addr++;
 	set_LCD_ADDR(addr);
@@ -277,13 +291,6 @@ void write_LCD_OH(int value){								// Function to set the Oh value
 	addr++;
 	set_LCD_ADDR(addr);
 	write_LCD(LCD_RS_1, (uint8_t) (ones+ascii_offset));
-	addr++;
-	set_LCD_ADDR(addr);
-	write_LCD(LCD_RS_1, (uint8_t) 'O');
-	addr++;
-	set_LCD_ADDR(addr);
-	write_LCD(LCD_RS_1, (uint8_t) 'h');
-	addr++;
 
 }
 
