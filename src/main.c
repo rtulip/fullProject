@@ -73,6 +73,11 @@ void mySPI_Init();
 void myLCD_Init();
 void write_LCD(uint8_t rs,uint8_t data);
 void clear_LCD();
+int SPI_BSY(SPI_TypeDef* SPIx);
+int SPI_TXE(SPI_TypeDef* SPIx);
+
+
+
 
 int main(int argc, char* argv[]){
 	// At this stage the system clock should have already been configured
