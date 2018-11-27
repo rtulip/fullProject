@@ -73,6 +73,7 @@ void mySPI_Init();
 void myLCD_Init();
 void write_LCD(uint8_t rs,uint8_t data);
 void clear_LCD();
+void set_LCD_ADDR(uint8_t addr);
 int SPI_BSY(SPI_TypeDef* SPIx);
 int SPI_TXE(SPI_TypeDef* SPIx);
 
@@ -140,10 +141,7 @@ void myLCD_Init(){
 	write_LCD(LCD_RS_0, 0x06);					// I/D = 1, S = 0
 	clear_LCD();								// Clear Display
 
-	uint8_t addr = 0x40;
-
-	write_LCD(LCD_RS_1,addr);
-	write_LCD(LCD_RS_0,(uint8_t) 'F');
+	write_LCD_HZ(2700);
 
 }
 
@@ -195,7 +193,65 @@ void write_LCD(uint8_t RS, uint8_t data){
 		while( SPI_BSY(SPI1) );
 		GPIOB->BSRR = 0x10;							// FORCE LCK to 1;
 	}
+	//trace_printf("waiting... \n");
+	//trace_printf("waiting... \n");
 
+
+}
+
+void set_LCD_ADDR(uint8_t addr){
+
+	write_LCD(LCD_RS_0, addr | 0x80);
+
+}
+
+void write_LCD_HZ(int value){
+
+	uint8_t addr = 0x00;
+
+	int thou = value / 1000;
+	int hund = (value / 100 ) % 10;
+	int tens = (value / 10) % 10;
+	int ones = (value % 10);
+
+	int ascii_offset = 0x30;
+
+	trace_printf("1000s: %d 100s: %d 10s: %d 1s: %d\n",thou,hund,tens,ones);
+
+	set_LCD_ADDR(addr);
+	write_LCD(LCD_RS_1, (uint8_t) 'F');
+	addr++;
+	set_LCD_ADDR(addr);
+	write_LCD(LCD_RS_1, (uint8_t) ':');
+	addr++;
+	set_LCD_ADDR(addr);
+	write_LCD(LCD_RS_1, (uint8_t) (thou + ascii_offset));
+	addr++;
+	set_LCD_ADDR(addr);
+	write_LCD(LCD_RS_1, (uint8_t) (hund+ascii_offset));
+	addr++;
+	set_LCD_ADDR(addr);
+	write_LCD(LCD_RS_1, (uint8_t) (tens+ascii_offset));
+	addr++;
+	set_LCD_ADDR(addr);
+	write_LCD(LCD_RS_1, (uint8_t) (ones+ascii_offset));
+	addr++;
+	set_LCD_ADDR(addr);
+	write_LCD(LCD_RS_1, (uint8_t) 'H');
+	addr++;
+	set_LCD_ADDR(addr);
+	write_LCD(LCD_RS_1, (uint8_t) 'z');
+	addr++;
+
+
+
+}
+
+void clear_LCD(){
+	write_LCD(LCD_RS_0, 0x01);
+	trace_printf("Clearing... \n");
+	trace_printf("Clearing... \n");
+	// need to wait for a few ms
 
 }
 
@@ -241,12 +297,7 @@ void myADC_init(){
 	trace_printf("ADC Ready\n");
 }
 
-void clear_LCD(){
-	write_LCD(LCD_RS_0, 0x01);
-	trace_printf("Clearing... \n");
-	// need to wait for a few ms
 
-}
 
 void myDAC_init(){
 	// PA4
@@ -271,11 +322,11 @@ void myGPIOA_Init()
 	/* Configure PA0 as output */
 	// Relevant register: GPIOA->MODER
 
-	GPIOA->MODER &= ~(GPIO_MODER_MODER0);
+	GPIOA->MODER &= ~(GPIO_MODER_MODER1);
 
 	/* Ensure no pull-up/pull-down for PA0 */
 	// Relevant register: GPIOA->PUPDR
-	GPIOA->PUPDR &= ~(GPIO_PUPDR_PUPDR0);
+	GPIOA->PUPDR &= ~(GPIO_PUPDR_PUPDR1);
 
 }
 
