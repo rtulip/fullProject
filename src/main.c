@@ -59,6 +59,9 @@ int FIRST_RISING_EDGE = 0;
 /* Maximum possible setting for overflow */
 #define myTIM2_PERIOD ((uint32_t)0xFFFFFFFF)
 
+#define LCD_RS_0 0x0
+#define LCD_RS_1 0x1
+
 void myGPIOA_Init(void);
 void myGPIOB_Init(void);
 void myGPIOC_Init(void);
@@ -67,7 +70,7 @@ void myEXTI_Init(void);
 void myADC_init();
 void myDAC_init();
 void mySPI_Init();
-void write_SPI(uint8_t data);
+void write_LCD(uint8_t rs,uint8_t data);
 
 int main(int argc, char* argv[]){
 	// At this stage the system clock should have already been configured
@@ -124,29 +127,17 @@ void myLCD_Init(){
 	myGPIOB_Init();
 	mySPI_Init();
 	
-	uint8_t data = 0b00100000;				// Set to 4-bit interface
-	GPIOB->ODR &= ~(0x0010);				// FORCE LCK to 0;
-	while( ((SPI1->SR & SPI_SR_BSY) >> 7 ) != 0 || ((SPI1->SR & SPI_SR_TXE) >> 1) != 1);
-	SPI_SendData8(SPI1,data);
-	trace_printf("Finished writing\n");
-	while ((SPI1->SR & SPI_SR_BSY >> 7) == 1);
-	GPIOB->ODR |= 0x0010;					// FORCE LCK to 1;
-
-	uint8_t i2 = 0x28;
-	uint8_t i3 = 0x0C;
-	uint8_t i4 = 0x06;
-	uint8_t i5 = 0x01;
-
-	write_SPI(i2);
-	write_SPI(i3);
-	write_SPI(i4);
-	write_SPI(i5);
+	write_LCD(LCD_RS_0, 0x02);				// Set to 4-bit interface
+		
+	write_LCD(LCD_RS_0, 0x28);				
+	write_LCD(LCD_RS_0, 0x0C);
+	write_LCD(LCD_RS_0, 0x06);
+	write_LCD(LCD_RS_0, 0x01);
 
 	uint8_t addr = 0x80;
 
-	write_SPI(addr);
-	write_SPI((uint8_t) 'F');
-
+	write_LCD(addr);
+	write_LCD((uint8_t) 'F');
 
 }
 
@@ -154,10 +145,9 @@ void mySPI_Init(){
 
 	RCC->APB2ENR |= RCC_APB2ENR_SPI1EN;
 
-	SPI1->CR1 |= SPI_CR1_SSM;
+	SPI1->CR1 |= SPI_CR1_SSM;				// Is this needed?
 
-	SPI_InitTypeDef SPI_InitStructInfo;
-	SPI_InitTypeDef* SPI_InitStruct = &SPI_InitStructInfo;
+	SPI_InitTypeDef* SPI_InitStruct;
 
 	SPI_InitStruct->SPI_Direction = SPI_Direction_1Line_Tx;
 	SPI_InitStruct->SPI_Mode = SPI_Mode_Master;
@@ -170,33 +160,28 @@ void mySPI_Init(){
 	SPI_InitStruct->SPI_CRCPolynomial = 7;
 
 	SPI_Init(SPI1,SPI_InitStruct);
-
 	SPI_Cmd(SPI1,ENABLE);
 
 }
 
-void write_SPI(uint8_t data){
-
+void write_LCD(uint8_t rs, uint8_t data){
 
 	uint8_t splits[6];
 
-	splits[0] = 0x00 & ((data & 0xF0) >> 4);
-	splits[1] = 0x80 & ((data & 0xF0) >> 4);
-	splits[2] = 0x00 & ((data & 0xF0) >> 4);
+	splits[0] = 0x00 & ((data & 0xF0) >> 4);	// High Disable	
+	splits[1] = 0x80 & ((data & 0xF0) >> 4);	// High Enable
+	splits[2] = 0x00 & ((data & 0xF0) >> 4);	// High Disable
 
-	splits[3] = 0x00 & (data & 0x0F);
-	splits[4] = 0x80 & (data & 0x0F);
-	splits[5] = 0x00 & (data & 0x0F);
+	splits[3] = 0x00 & (data & 0x0F);			// Low Disable
+	splits[4] = 0x80 & (data & 0x0F);			// Low Enable
+	splits[5] = 0x00 & (data & 0x0F);			// Low Disable
 
 	for (int i = 0; i < 6; i++){
-		GPIOB->ODR = 0x00000000;	// FORCE LCK to 0;
+		GPIOB->BRR = 0x10;							// FORCE LCK to 0;
 		while( ((SPI1->SR & SPI_SR_BSY) >> 7 ) != 0 || ((SPI1->SR & SPI_SR_TXE) >> 1) != 1);
 		SPI_SendData8(SPI1,splits[i]);
-		//trace_printf("wait 1 ");
-		//trace_printf("wait 2 ");
-		//trace_printf("wait 3\n");
 		while ((SPI1->SR & SPI_SR_BSY >> 7) == 1);
-		GPIOB->ODR = 0x00000010;	// FORCE LCK to 1;
+		GPIOB->BSRR = 0x10;							// FORCE LCK to 1;
 	}
 
 
