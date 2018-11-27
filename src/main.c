@@ -64,13 +64,13 @@ double GLOBAL_RES = 0;
 #define LCD_RS_0 0x0
 #define LCD_RS_1 0x40
 
-void myGPIOA_Init(void);
-void myGPIOB_Init(void);
-void myGPIOC_Init(void);
-void myTIM2_Init(void);
-void myEXTI_Init(void);
-void myADC_init();
-void myDAC_init();
+void myGPIOA_Init();
+void myGPIOB_Init();
+void myGPIOC_Init();
+void myTIM2_Init();
+void myEXTI_Init();
+void myADC_Init();
+void myDAC_Init();
 void mySPI_Init();
 void myLCD_Init();
 void write_LCD(uint8_t rs,uint8_t data);
@@ -88,9 +88,11 @@ int main(int argc, char* argv[]){
 	myGPIOA_Init();		/* Initialize I/O port PA */
 	myTIM2_Init();		/* Initialize timer TIM2 */
 	myEXTI_Init();		/* Initialize EXTI */
+
 	myGPIOC_Init();
-	myADC_init();
-	myDAC_init();
+	myADC_Init();
+	myDAC_Init();
+
 	myLCD_Init();
 
 	// Infinite loop
@@ -101,16 +103,32 @@ int main(int argc, char* argv[]){
 		while((ADC1->ISR & ADC_ISR_EOSEQ) == 0);			// Wait for end of sequence
 		ADC1->ISR &= ~ADC_ISR_EOC;							// Reset end of conversation flag
 		int voltage = (ADC1->DR & 0x00FF);					// Read ADC data
-
-		trace_printf("voltage: %d\n",voltage);
-
 		double res = 5000 + ((double) voltage/255.0)*5000;	// Calculate resistance
-		GLOBAL_RES = (int) res;
-		DAC->DHR8R1 = res;									// Write ADC value to DAC
+		GLOBAL_RES = (int) res;								// update global resistance value
+		DAC->DHR8R1 = voltage;								// Write ADC value to DAC
 		
-		update_LCD();
+		update_LCD();										// update display with new Resistance value
 
 	}
+
+}
+void myGPIOA_Init()
+{
+	//Used to detect signal from generator
+
+	/* Enable clock for GPIOA peripheral */
+	// Relevant register: RCC->AHBENR
+	RCC->AHBENR |= RCC_AHBENR_GPIOAEN;
+
+
+	/* Configure PA0 as output */
+	// Relevant register: GPIOA->MODER
+
+	GPIOA->MODER &= ~(GPIO_MODER_MODER1);
+
+	/* Ensure no pull-up/pull-down for PA0 */
+	// Relevant register: GPIOA->PUPDR
+	GPIOA->PUPDR &= ~(GPIO_PUPDR_PUPDR1);
 
 }
 
@@ -133,6 +151,152 @@ void myGPIOB_Init(){										// GPIOB Used for SPI communication
 		GPIOB->PUPDR &= ~(GPIO_PUPDR_PUPDR3);
 		GPIOB->PUPDR &= ~(GPIO_PUPDR_PUPDR4);
 		GPIOB->PUPDR &= ~(GPIO_PUPDR_PUPDR5);
+
+}
+
+void myGPIOC_Init()
+{
+
+	/* Enable clock for GPIOC peripheral */
+	// Relevant register: RCC->AHBENR
+	RCC->AHBENR |= RCC_AHBENR_GPIOCEN;
+
+	/* Configure PC0 as analog mode */
+	// Relevant register: GPIOC->MODER
+	GPIOC->MODER |= GPIO_MODER_MODER0;
+
+	/* Ensure no pull-up/pull-down for PA1 */
+	// Relevant register: GPIOC->PUPDR
+	GPIOC->PUPDR &= ~(GPIO_PUPDR_PUPDR0);
+
+}
+
+void myTIM2_Init(){
+	//Timer setup.
+
+	/* Enable clock for TIM2 peripheral */
+	// Relevant register: RCC->APB1ENR
+
+	RCC->APB1ENR |= RCC_APB1ENR_TIM2EN;
+
+	/* Configure TIM2: buffer auto-reload, count up, stop on overflow,
+	 * enable update events, interrupt on overflow only */
+	// Relevant register: TIM2->CR1
+	TIM2->CR1 = ((uint16_t)0x008C);
+
+	/* Set clock prescaler value */
+	TIM2->PSC = myTIM2_PRESCALER;
+	/* Set auto-reloaded delay */
+	TIM2->ARR = myTIM2_PERIOD;
+
+	/* Update timer registers */
+	// Relevant register: TIM2->EGR
+	TIM2->EGR = ((uint16_t)0x0000);
+
+	// Is setting up NVIC needed?
+
+	/* Assign TIM2 interrupt priority = 0 in NVIC */
+	// Relevant register: NVIC->IP[3], or use NVIC_SetPriority
+
+	NVIC_SetPriority(TIM2_IRQn,0);
+
+	/* Enable TIM2 interrupts in NVIC */
+	// Relevant register: NVIC->ISER[0], or use NVIC_EnableIRQ
+
+	//NVIC_EnableIRQ(TIM2_IRQn);
+
+	/* Enable update interrupt generation */
+	// Relevant register: TIM2->DIER
+	TIM2->DIER |= 0x1;
+
+}
+
+void myEXTI_Init()
+{
+	//Interrupt setup
+
+	/* Map EXTI1 line to PA1 */
+	// Relevant register: SYSCFG->EXTICR[0]
+	SYSCFG->EXTICR[0] = ((uint16_t)0x80);
+
+	/* EXTI1 line interrupts: set rising-edge trigger */
+	// Relevant register: EXTI->RTSR
+	EXTI->RTSR = 0xFFFFFFFF;
+
+	/* Unmask interrupts from EXTI1 line */
+	// Relevant register: EXTI->IMR
+	EXTI->IMR |= 0x2;
+
+	/* Assign EXTI1 interrupt priority = 0 in NVIC */
+	// Relevant register: NVIC->IP[1], or use NVIC_SetPriority
+	NVIC_SetPriority(EXTI0_1_IRQn,0);
+
+	/* Enable EXTI1 interrupts in NVIC */
+	// Relevant register: NVIC->ISER[0], or use NVIC_EnableIRQ
+	NVIC_EnableIRQ(EXTI0_1_IRQn);
+}
+
+void myADC_Init(){
+
+	// USE PC0 (ADC_IN10)
+
+	ADC1->ISR = 0x0000;										// Ensure ADC_ISR is reset
+	ADC1->IER = 0x0000;										// Disable all interrupts
+	ADC1->CFGR1 = 0x0000;									// Ensure configuration is reset
+	ADC1->CFGR2 = 0x0000;									// Ensure configuration is reset
+
+	RCC->APB2ENR |= RCC_APB2ENR_ADC1EN;						// Activate ADC clock1
+	ADC1->CFGR2 |= ADC_CFGR2_CKMODE_1;						// Set clock mode
+
+	ADC1->CFGR1 |= ADC_CFGR1_CONT;							// Set to continuous mode
+	ADC1->CFGR1 |= ADC_CFGR1_RES_1;							// Set resolution of conversation to 8bit
+
+	ADC1->SMPR |= ADC_SMPR1_SMPR;							// Set lowest sampling rate
+
+	ADC1->CHSELR = 0x0400;									// Select Channel 10
+	ADC1->CR = 0x0000;										// Ensure ADC_CR_ADEN == 0
+	ADC1->CR |= ADC_CR_ADCAL;								// Set ADC_CR_ADCAL to 1
+
+	while(((ADC1->CR & ADC_CR_ADCAL) << 1) == 1);			// Wait for ADCAL to == 0
+
+	CF = (ADC1->DR & 0x007F);								// Read calibration factor
+	trace_printf("Calibrated: %d\n",CF);
+															// ENABLE ADC
+	ADC1->CR |= ADC_CR_ADEN;								// Raise ADC_CR_ADEN to 1
+	while((ADC1->ISR & ADC_ISR_ADRDY) == 0);				// Wait for ADRDY to == 1
+	trace_printf("ADC Ready\n");
+
+}
+
+void myDAC_Init(){
+	// PA4
+	GPIOA->MODER &= ~(GPIO_MODER_MODER4);					// Configure PA4 as Analog
+
+	RCC->APB1ENR |= RCC_APB1ENR_DACEN;						// Activate DAC clock
+
+	DAC->CR |= DAC_CR_EN1;									// Enable DAC
+
+}
+
+void mySPI_Init(){
+
+	RCC->APB2ENR |= RCC_APB2ENR_SPI1EN;						// Enable SPI1 clock
+
+	SPI_InitTypeDef SPI_InitStructInfo;
+	SPI_InitTypeDef* SPI_InitStruct = &SPI_InitStructInfo;	// Create struct to initiate SPI
+
+	SPI_InitStruct->SPI_Direction = SPI_Direction_1Line_Tx;
+	SPI_InitStruct->SPI_Mode = SPI_Mode_Master;
+	SPI_InitStruct->SPI_DataSize = SPI_DataSize_8b;
+	SPI_InitStruct->SPI_CPOL = SPI_CPOL_Low;
+	SPI_InitStruct->SPI_CPHA = SPI_CPHA_1Edge;
+	SPI_InitStruct->SPI_NSS = SPI_NSS_Soft;
+	SPI_InitStruct->SPI_BaudRatePrescaler = SPI_BaudRatePrescaler_256;
+	SPI_InitStruct->SPI_FirstBit = SPI_FirstBit_MSB;
+	SPI_InitStruct->SPI_CRCPolynomial = 7;
+
+	SPI_Init(SPI1,SPI_InitStruct);							// Init SPI with SPI_InitStruct
+	SPI_Cmd(SPI1,ENABLE);									// Enable SPI1
 
 }
 
@@ -179,31 +343,9 @@ void myLCD_Init(){											// Setup LCD
 	set_LCD_ADDR(addr);										
 	write_LCD(LCD_RS_1, (uint8_t) 'h');
 
-
-	
 }
 
-void mySPI_Init(){
-
-	RCC->APB2ENR |= RCC_APB2ENR_SPI1EN;						// Enable SPI1 clock
-
-	SPI_InitTypeDef SPI_InitStructInfo;					
-	SPI_InitTypeDef* SPI_InitStruct = &SPI_InitStructInfo;	// Create struct to initiate SPI
-
-	SPI_InitStruct->SPI_Direction = SPI_Direction_1Line_Tx;
-	SPI_InitStruct->SPI_Mode = SPI_Mode_Master;
-	SPI_InitStruct->SPI_DataSize = SPI_DataSize_8b;
-	SPI_InitStruct->SPI_CPOL = SPI_CPOL_Low;
-	SPI_InitStruct->SPI_CPHA = SPI_CPHA_1Edge;
-	SPI_InitStruct->SPI_NSS = SPI_NSS_Soft;
-	SPI_InitStruct->SPI_BaudRatePrescaler = SPI_BaudRatePrescaler_256;
-	SPI_InitStruct->SPI_FirstBit = SPI_FirstBit_MSB;
-	SPI_InitStruct->SPI_CRCPolynomial = 7;
-
-	SPI_Init(SPI1,SPI_InitStruct);							// Init SPI with SPI_InitStruct
-	SPI_Cmd(SPI1,ENABLE);									// Enable SPI1
-
-}
+/* --- LCD FUNCTIONS --- */
 
 void write_LCD(uint8_t RS, uint8_t data){					// Function to write to LCD.
 
@@ -336,149 +478,7 @@ int SPI_TXE(SPI_TypeDef* SPIx){								// Function to check if SPI_TXE flag set
 
 }
 
-void myADC_init(){											
-
-	// USE PC0 (ADC_IN10)
-
-	ADC1->ISR = 0x0000;										// Ensure ADC_ISR is reset
-	ADC1->IER = 0x0000;										// Disable all interrupts
-	ADC1->CFGR1 = 0x0000;									// Ensure configuration is reset
-	ADC1->CFGR2 = 0x0000;									// Ensure configuration is reset
-
-	RCC->APB2ENR |= RCC_APB2ENR_ADC1EN;						// Activate ADC clock1
-	ADC1->CFGR2 |= ADC_CFGR2_CKMODE_1;						// Set clock mode
-
-	ADC1->CFGR1 |= ADC_CFGR1_CONT;							// Set to continuous mode
-	ADC1->CFGR1 |= ADC_CFGR1_RES_1;							// Set resolution of conversation to 8bit
-
-	ADC1->SMPR |= ADC_SMPR1_SMPR;							// Set lowest sampling rate
-
-	ADC1->CHSELR = 0x0400;									// Select Channel 10
-	ADC1->CR = 0x0000;										// Ensure ADC_CR_ADEN == 0
-	ADC1->CR |= ADC_CR_ADCAL;								// Set ADC_CR_ADCAL to 1
-
-	while(((ADC1->CR & ADC_CR_ADCAL) << 1) == 1);			// Wait for ADCAL to == 0
-
-	CF = (ADC1->DR & 0x007F);								// Read calibration factor
-	trace_printf("Calibrated: %d\n",CF);
-															// ENABLE ADC
-	ADC1->CR |= ADC_CR_ADEN;								// Raise ADC_CR_ADEN to 1
-	while((ADC1->ISR & ADC_ISR_ADRDY) == 0);				// Wait for ADRDY to == 1
-	trace_printf("ADC Ready\n");
-
-}
-
-void myDAC_init(){
-	// PA4
-	GPIOA->MODER &= ~(GPIO_MODER_MODER4);					// Configure PA4 as Analog
-
-	RCC->APB1ENR |= RCC_APB1ENR_DACEN;						// Activate DAC clock
-
-	DAC->CR |= DAC_CR_EN1;									// Enable DAC
-
-}
-
-void myGPIOA_Init()
-{
-	//Used to detect signal from generator
-
-	/* Enable clock for GPIOA peripheral */
-	// Relevant register: RCC->AHBENR
-	RCC->AHBENR |= RCC_AHBENR_GPIOAEN;
-
-
-	/* Configure PA0 as output */
-	// Relevant register: GPIOA->MODER
-
-	GPIOA->MODER &= ~(GPIO_MODER_MODER1);
-
-	/* Ensure no pull-up/pull-down for PA0 */
-	// Relevant register: GPIOA->PUPDR
-	GPIOA->PUPDR &= ~(GPIO_PUPDR_PUPDR1);
-
-}
-
-void myGPIOC_Init()
-{
-
-	/* Enable clock for GPIOC peripheral */
-	// Relevant register: RCC->AHBENR
-	RCC->AHBENR |= RCC_AHBENR_GPIOCEN;
-
-	/* Configure PC0 as analog mode */
-	// Relevant register: GPIOC->MODER
-	GPIOC->MODER |= GPIO_MODER_MODER0;
-
-	/* Ensure no pull-up/pull-down for PA1 */
-	// Relevant register: GPIOC->PUPDR
-	GPIOC->PUPDR &= ~(GPIO_PUPDR_PUPDR0);
-
-}
-
-void myTIM2_Init(void){
-	//Timer setup.
-
-	/* Enable clock for TIM2 peripheral */
-	// Relevant register: RCC->APB1ENR
-
-	RCC->APB1ENR |= RCC_APB1ENR_TIM2EN;
-
-	/* Configure TIM2: buffer auto-reload, count up, stop on overflow,
-	 * enable update events, interrupt on overflow only */
-	// Relevant register: TIM2->CR1
-	TIM2->CR1 = ((uint16_t)0x008C);
-
-	/* Set clock prescaler value */
-	TIM2->PSC = myTIM2_PRESCALER;
-	/* Set auto-reloaded delay */
-	TIM2->ARR = myTIM2_PERIOD;
-
-	/* Update timer registers */
-	// Relevant register: TIM2->EGR
-	TIM2->EGR = ((uint16_t)0x0000);
-
-	// Is setting up NVIC needed?
-
-	/* Assign TIM2 interrupt priority = 0 in NVIC */
-	// Relevant register: NVIC->IP[3], or use NVIC_SetPriority
-
-	NVIC_SetPriority(TIM2_IRQn,0);
-
-	/* Enable TIM2 interrupts in NVIC */
-	// Relevant register: NVIC->ISER[0], or use NVIC_EnableIRQ
-
-	//NVIC_EnableIRQ(TIM2_IRQn);
-
-	/* Enable update interrupt generation */
-	// Relevant register: TIM2->DIER
-	TIM2->DIER |= 0x1;
-
-}
-
-void myEXTI_Init()
-{
-	//Interrupt setup
-
-	/* Map EXTI1 line to PA1 */
-	// Relevant register: SYSCFG->EXTICR[0]
-	SYSCFG->EXTICR[0] = ((uint16_t)0x80);
-
-	/* EXTI1 line interrupts: set rising-edge trigger */
-	// Relevant register: EXTI->RTSR
-	EXTI->RTSR = 0xFFFFFFFF;
-
-	/* Unmask interrupts from EXTI1 line */
-	// Relevant register: EXTI->IMR
-	EXTI->IMR |= 0x2;
-
-	/* Assign EXTI1 interrupt priority = 0 in NVIC */
-	// Relevant register: NVIC->IP[1], or use NVIC_SetPriority
-	NVIC_SetPriority(EXTI0_1_IRQn,0);
-
-	/* Enable EXTI1 interrupts in NVIC */
-	// Relevant register: NVIC->ISER[0], or use NVIC_EnableIRQ
-	NVIC_EnableIRQ(EXTI0_1_IRQn);
-}
+// --- Interrupt Handlers ---
 
 void TIM2_IRQHandler()
 {
@@ -528,7 +528,7 @@ void EXTI0_1_IRQHandler()
 
 			GLOBAL_FRQ = (int) frq;
 
-			trace_printf("Period: %lf s Frq: %lf Hz\n",period,frq);
+			//trace_printf("Period: %lf s Frq: %lf Hz\n",period,frq);
 
 			// 2. Clear EXTI1 interrupt pending flag (EXTI->PR).
 			//
@@ -558,7 +558,6 @@ void EXTI0_1_IRQHandler()
 
 	}
 }
-
 
 #pragma GCC diagnostic pop
 
