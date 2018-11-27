@@ -70,7 +70,9 @@ void myEXTI_Init(void);
 void myADC_init();
 void myDAC_init();
 void mySPI_Init();
+void myLCD_Init();
 void write_LCD(uint8_t rs,uint8_t data);
+void clear_LCD();
 
 int main(int argc, char* argv[]){
 	// At this stage the system clock should have already been configured
@@ -81,7 +83,7 @@ int main(int argc, char* argv[]){
 	myGPIOC_Init();
 	myADC_init();
 	myDAC_init();
-	mySPI_Init();
+	myLCD_Init();
 
 	// Infinite loop
 	ADC1->CR |= ADC_CR_ADSTART;
@@ -129,10 +131,10 @@ void myLCD_Init(){
 	
 	write_LCD(LCD_RS_0, 0x02);				// Set to 4-bit interface
 		
-	write_LCD(LCD_RS_0, 0x28);				
-	write_LCD(LCD_RS_0, 0x0C);
-	write_LCD(LCD_RS_0, 0x06);
-	write_LCD(LCD_RS_0, 0x01);
+	write_LCD(LCD_RS_0, 0x28);				// DL = 0, N = 1, F = 0
+	write_LCD(LCD_RS_0, 0x0C);				// D = 1, C = 0, B = 0
+	write_LCD(LCD_RS_0, 0x06);				// I/D = 1, S = 0
+					// Clear Display
 
 	uint8_t addr = 0x80;
 
@@ -168,13 +170,19 @@ void write_LCD(uint8_t rs, uint8_t data){
 
 	uint8_t splits[6];
 
-	splits[0] = 0x00 & ((data & 0xF0) >> 4);	// High Disable	
-	splits[1] = 0x80 & ((data & 0xF0) >> 4);	// High Enable
-	splits[2] = 0x00 & ((data & 0xF0) >> 4);	// High Disable
+	uint8_t H = ((data & 0xF0) >> 4);
+	uint8_t L = (data & 0x0F);
 
-	splits[3] = 0x00 & (data & 0x0F);			// Low Disable
-	splits[4] = 0x80 & (data & 0x0F);			// Low Enable
-	splits[5] = 0x00 & (data & 0x0F);			// Low Disable
+	uint8_t ENABLE = 0x80;
+	uint8_t DISABLE = 0x00;
+
+	splits[0] = DISABLE | RS | H;				// High Disable	
+	splits[1] = ENABLE  | RS | H;				// High Enable
+	splits[2] = DISABLE | RS | H;				// High Disable
+
+	splits[3] = DISABLE | RS | L;				// High Disable	
+	splits[4] = ENABLE  | RS | L;				// High Enable
+	splits[5] = DISABLE | RS | L;				// High Disable
 
 	for (int i = 0; i < 6; i++){
 		GPIOB->BRR = 0x10;							// FORCE LCK to 0;
@@ -215,6 +223,10 @@ void myADC_init(){
 	ADC1->CR |= ADC_CR_ADEN;						// Raise ADC_CR_ADEN to 1
 	while((ADC1->ISR & ADC_ISR_ADRDY) == 0);		// Wait for ADRDY to == 1
 	trace_printf("ADC Ready\n");
+}
+
+void clear_LCD(){
+	write_LCD(LCD_RS_0, 0x01);
 }
 
 void myDAC_init(){
