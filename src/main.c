@@ -60,7 +60,7 @@ int FIRST_RISING_EDGE = 0;
 #define myTIM2_PERIOD ((uint32_t)0xFFFFFFFF)
 
 #define LCD_RS_0 0x0
-#define LCD_RS_1 0x1
+#define LCD_RS_1 0x40
 
 void myGPIOA_Init(void);
 void myGPIOB_Init(void);
@@ -129,17 +129,16 @@ void myLCD_Init(){
 	myGPIOB_Init();
 	mySPI_Init();
 	
-	write_LCD(LCD_RS_0, 0x02);				// Set to 4-bit interface
-		
-	write_LCD(LCD_RS_0, 0x28);				// DL = 0, N = 1, F = 0
-	write_LCD(LCD_RS_0, 0x0C);				// D = 1, C = 0, B = 0
-	write_LCD(LCD_RS_0, 0x06);				// I/D = 1, S = 0
-					// Clear Display
+	write_LCD(LCD_RS_0, 0x02);					// Set to 4-bit interface
+	write_LCD(LCD_RS_0, 0x28);					// DL = 0, N = 1, F = 0
+	write_LCD(LCD_RS_0, 0x0C);					// D = 1, C = 0, B = 0
+	write_LCD(LCD_RS_0, 0x06);					// I/D = 1, S = 0
+	clear_LCD();								// Clear Display
 
-	uint8_t addr = 0x80;
+	uint8_t addr = 0x40;
 
-	write_LCD(addr);
-	write_LCD((uint8_t) 'F');
+	write_LCD(LCD_RS_1,addr);
+	write_LCD(LCD_RS_0,(uint8_t) 'F');
 
 }
 
@@ -147,9 +146,9 @@ void mySPI_Init(){
 
 	RCC->APB2ENR |= RCC_APB2ENR_SPI1EN;
 
-	SPI1->CR1 |= SPI_CR1_SSM;				// Is this needed?
-
-	SPI_InitTypeDef* SPI_InitStruct;
+	//SPI1->CR1 |= SPI_CR1_SSM;				// Is this needed?
+	SPI_InitTypeDef SPI_InitStructInfo;
+	SPI_InitTypeDef* SPI_InitStruct = &SPI_InitStructInfo;
 
 	SPI_InitStruct->SPI_Direction = SPI_Direction_1Line_Tx;
 	SPI_InitStruct->SPI_Mode = SPI_Mode_Master;
@@ -157,7 +156,7 @@ void mySPI_Init(){
 	SPI_InitStruct->SPI_CPOL = SPI_CPOL_Low;
 	SPI_InitStruct->SPI_CPHA = SPI_CPHA_1Edge;
 	SPI_InitStruct->SPI_NSS = SPI_NSS_Soft;
-	SPI_InitStruct->SPI_BaudRatePrescaler = SPI_BaudRatePrescaler_2;
+	SPI_InitStruct->SPI_BaudRatePrescaler = SPI_BaudRatePrescaler_256;
 	SPI_InitStruct->SPI_FirstBit = SPI_FirstBit_MSB;
 	SPI_InitStruct->SPI_CRCPolynomial = 7;
 
@@ -166,7 +165,7 @@ void mySPI_Init(){
 
 }
 
-void write_LCD(uint8_t rs, uint8_t data){
+void write_LCD(uint8_t RS, uint8_t data){
 
 	uint8_t splits[6];
 
@@ -186,12 +185,24 @@ void write_LCD(uint8_t rs, uint8_t data){
 
 	for (int i = 0; i < 6; i++){
 		GPIOB->BRR = 0x10;							// FORCE LCK to 0;
-		while( ((SPI1->SR & SPI_SR_BSY) >> 7 ) != 0 || ((SPI1->SR & SPI_SR_TXE) >> 1) != 1);
+		while( SPI_BSY(SPI1) || !SPI_TXE(SPI1) );	//
 		SPI_SendData8(SPI1,splits[i]);
-		while ((SPI1->SR & SPI_SR_BSY >> 7) == 1);
+		while( SPI_BSY(SPI1) );
 		GPIOB->BSRR = 0x10;							// FORCE LCK to 1;
 	}
 
+
+}
+
+int SPI_BSY(SPI_TypeDef* SPIx){
+
+	return (SPI_I2S_GetFlagStatus(SPIx,SPI_SR_BSY) == SET);
+
+}
+
+int SPI_TXE(SPI_TypeDef* SPIx){
+
+	return (SPI_I2S_GetFlagStatus(SPIx, SPI_SR_TXE) == SET);
 
 }
 
@@ -227,6 +238,9 @@ void myADC_init(){
 
 void clear_LCD(){
 	write_LCD(LCD_RS_0, 0x01);
+	trace_printf("Clearing... \n");
+	// need to wait for a few ms
+
 }
 
 void myDAC_init(){
@@ -249,14 +263,14 @@ void myGPIOA_Init()
 	RCC->AHBENR |= RCC_AHBENR_GPIOAEN;
 
 
-	/* Configure PA1 as input */
+	/* Configure PA0 as output */
 	// Relevant register: GPIOA->MODER
 
 	GPIOA->MODER &= ~(GPIO_MODER_MODER0);
 
-	/* Ensure no pull-up/pull-down for PA1 */
+	/* Ensure no pull-up/pull-down for PA0 */
 	// Relevant register: GPIOA->PUPDR
-	GPIOA->PUPDR &= ~(GPIO_PUPDR_PUPDR1);
+	GPIOA->PUPDR &= ~(GPIO_PUPDR_PUPDR0);
 
 }
 
@@ -277,7 +291,7 @@ void myGPIOC_Init()
 
 }
 
-void myTIM2_Init()
+myTIM2_Init()
 {
 	//Timer setup.
 
@@ -299,6 +313,47 @@ void myTIM2_Init()
 	/* Update timer registers */
 	// Relevant register: TIM2->EGR
 	TIM2->EGR = ((uint16_t)0x0000);
+
+	// Is setting up NVIC needed?
+
+	/* Assign TIM2 interrupt priority = 0 in NVIC */
+	// Relevant register: NVIC->IP[3], or use NVIC_SetPriority
+
+	NVIC_SetPriority(TIM2_IRQn,0);
+
+	/* Enable TIM2 interrupts in NVIC */
+	// Relevant register: NVIC->ISER[0], or use NVIC_EnableIRQ
+
+	NVIC_EnableIRQ(TIM2_IRQn);
+
+	/* Enable update interrupt generation */
+	// Relevant register: TIM2->DIER
+	TIM2->DIER |= 0x1;
+
+}
+
+void myTIM3_Init()
+{
+	//Timer setup.
+
+	/* Enable clock for TIM2 peripheral */
+	// Relevant register: RCC->APB1ENR
+
+	RCC->APB1ENR |= RCC_APB1ENR_TIM3EN;
+
+	/* Configure TIM2: buffer auto-reload, count up, stop on overflow,
+	 * enable update events, interrupt on overflow only */
+	// Relevant register: TIM2->CR1
+	TIM3->CR1 = ((uint16_t)0x008C);
+
+	/* Set clock prescaler value */
+	TIM3->PSC = myTIM2_PRESCALER;
+	/* Set auto-reloaded delay */
+	TIM3->ARR = myTIM2_PERIOD;
+
+	/* Update timer registers */
+	// Relevant register: TIM2->EGR
+	TIM3->EGR = ((uint16_t)0x0000);
 
 	// Is setting up NVIC needed?
 
