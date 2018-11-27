@@ -72,13 +72,12 @@ void myDAC_init();
 void mySPI_Init();
 void myLCD_Init();
 void write_LCD(uint8_t rs,uint8_t data);
+void write_LCD_HZ(int value);
+void write_LCD_OH(int value);
 void clear_LCD();
 void set_LCD_ADDR(uint8_t addr);
 int SPI_BSY(SPI_TypeDef* SPIx);
 int SPI_TXE(SPI_TypeDef* SPIx);
-
-
-
 
 int main(int argc, char* argv[]){
 	// At this stage the system clock should have already been configured
@@ -142,6 +141,7 @@ void myLCD_Init(){
 	clear_LCD();								// Clear Display
 
 	write_LCD_HZ(2700);
+	write_LCD_OH(4255);
 
 }
 
@@ -241,6 +241,48 @@ void write_LCD_HZ(int value){
 	addr++;
 	set_LCD_ADDR(addr);
 	write_LCD(LCD_RS_1, (uint8_t) 'z');
+	addr++;
+
+
+
+}
+
+void write_LCD_OH(int value){
+
+	uint8_t addr = 0x40;
+
+	int thou = value / 1000;
+	int hund = (value / 100 ) % 10;
+	int tens = (value / 10) % 10;
+	int ones = (value % 10);
+
+	int ascii_offset = 0x30;
+
+	trace_printf("1000s: %d 100s: %d 10s: %d 1s: %d\n",thou,hund,tens,ones);
+
+	set_LCD_ADDR(addr);
+	write_LCD(LCD_RS_1, (uint8_t) 'R');
+	addr++;
+	set_LCD_ADDR(addr);
+	write_LCD(LCD_RS_1, (uint8_t) ':');
+	addr++;
+	set_LCD_ADDR(addr);
+	write_LCD(LCD_RS_1, (uint8_t) (thou + ascii_offset));
+	addr++;
+	set_LCD_ADDR(addr);
+	write_LCD(LCD_RS_1, (uint8_t) (hund+ascii_offset));
+	addr++;
+	set_LCD_ADDR(addr);
+	write_LCD(LCD_RS_1, (uint8_t) (tens+ascii_offset));
+	addr++;
+	set_LCD_ADDR(addr);
+	write_LCD(LCD_RS_1, (uint8_t) (ones+ascii_offset));
+	addr++;
+	set_LCD_ADDR(addr);
+	write_LCD(LCD_RS_1, (uint8_t) 'O');
+	addr++;
+	set_LCD_ADDR(addr);
+	write_LCD(LCD_RS_1, (uint8_t) 'h');
 	addr++;
 
 
