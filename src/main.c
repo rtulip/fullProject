@@ -54,10 +54,13 @@
 
 int CF;
 int FIRST_RISING_EDGE = 0;
+int GLOBAL_FRQ = 0;
+double GLOBAL_RES = 0;
 
 #define myTIM2_PRESCALER ((uint16_t)0x0000)
 /* Maximum possible setting for overflow */
 #define myTIM2_PERIOD ((uint32_t)0xFFFFFFFF)
+#define myTIM3_PERIOD ((uint32_t)0x3840)
 
 #define LCD_RS_0 0x0
 #define LCD_RS_1 0x40
@@ -66,6 +69,7 @@ void myGPIOA_Init(void);
 void myGPIOB_Init(void);
 void myGPIOC_Init(void);
 void myTIM2_Init(void);
+void myTIM3_Init(void);
 void myEXTI_Init(void);
 void myADC_init();
 void myDAC_init();
@@ -98,9 +102,13 @@ int main(int argc, char* argv[]){
 		while((ADC1->ISR & ADC_ISR_EOSEQ) == 0);	// Wait for end of sequence
 		ADC1->ISR &= ~ADC_ISR_EOC;					// Reset end of conversation flag
 		int test = (ADC1->DR & 0x00FF);				// Read ADC data
+		double res = 5000 + ((double) test/255.0)*5000;
+		trace_printf("voltage: %d, Res: %lf\n",test,res);
 
+		GLOBAL_RES = (int) res;
 		DAC->DHR8R1 = test;							// Write to DAC ADC value
-
+		write_LCD_HZ(GLOBAL_FRQ);
+		write_LCD_OH(GLOBAL_RES);
 	}
 
 }
@@ -142,6 +150,8 @@ void myLCD_Init(){
 
 	write_LCD_HZ(2700);
 	write_LCD_OH(4255);
+
+	myTIM3_Init();
 
 }
 
@@ -216,7 +226,7 @@ void write_LCD_HZ(int value){
 
 	int ascii_offset = 0x30;
 
-	trace_printf("1000s: %d 100s: %d 10s: %d 1s: %d\n",thou,hund,tens,ones);
+	//trace_printf("1000s: %d 100s: %d 10s: %d 1s: %d\n",thou,hund,tens,ones);
 
 	set_LCD_ADDR(addr);
 	write_LCD(LCD_RS_1, (uint8_t) 'F');
@@ -258,7 +268,7 @@ void write_LCD_OH(int value){
 
 	int ascii_offset = 0x30;
 
-	trace_printf("1000s: %d 100s: %d 10s: %d 1s: %d\n",thou,hund,tens,ones);
+	//trace_printf("1000s: %d 100s: %d 10s: %d 1s: %d\n",thou,hund,tens,ones);
 
 	set_LCD_ADDR(addr);
 	write_LCD(LCD_RS_1, (uint8_t) 'R');
@@ -284,7 +294,6 @@ void write_LCD_OH(int value){
 	set_LCD_ADDR(addr);
 	write_LCD(LCD_RS_1, (uint8_t) 'h');
 	addr++;
-
 
 
 }
@@ -389,8 +398,7 @@ void myGPIOC_Init()
 
 }
 
-myTIM2_Init()
-{
+myTIM2_Init(){
 	//Timer setup.
 
 	/* Enable clock for TIM2 peripheral */
@@ -442,12 +450,12 @@ void myTIM3_Init()
 	/* Configure TIM2: buffer auto-reload, count up, stop on overflow,
 	 * enable update events, interrupt on overflow only */
 	// Relevant register: TIM2->CR1
-	TIM3->CR1 = ((uint16_t)0x008C);
+	TIM3->CR1 = ((uint16_t)0x009C);
 
 	/* Set clock prescaler value */
 	TIM3->PSC = myTIM2_PRESCALER;
 	/* Set auto-reloaded delay */
-	TIM3->ARR = myTIM2_PERIOD;
+	TIM3->ARR = myTIM3_PERIOD;
 
 	/* Update timer registers */
 	// Relevant register: TIM2->EGR
@@ -458,16 +466,18 @@ void myTIM3_Init()
 	/* Assign TIM2 interrupt priority = 0 in NVIC */
 	// Relevant register: NVIC->IP[3], or use NVIC_SetPriority
 
-	NVIC_SetPriority(TIM2_IRQn,0);
+	NVIC_SetPriority(TIM3_IRQn,0);
 
 	/* Enable TIM2 interrupts in NVIC */
 	// Relevant register: NVIC->ISER[0], or use NVIC_EnableIRQ
 
-	NVIC_EnableIRQ(TIM2_IRQn);
+	NVIC_EnableIRQ(TIM3_IRQn);
 
 	/* Enable update interrupt generation */
 	// Relevant register: TIM2->DIER
-	TIM2->DIER |= 0x1;
+	TIM3->DIER |= 0x1;
+
+	//TIM3->CR1 |= 0x1;
 
 }
 
@@ -514,6 +524,29 @@ void TIM2_IRQHandler()
 	}
 }
 
+void TIM3_IRQHandler()
+{
+	// Used to update display
+
+	/* Check if update interrupt flag is indeed set */
+	if ((TIM3->SR & TIM_SR_UIF) != 0)
+	{
+		trace_printf("\n*** Overflow! ***\n");
+
+		/* Clear update interrupt flag */
+		// Relevant register: TIM2->SR
+
+		//write_LCD_HZ(GLOBAL_FRQ);
+
+		TIM3->SR &= 0xFFBE; 			//set bit 0 & 6 to 0 and keep everything else the same
+		TIM3->CNT = 0x0;
+		TIM3->CR1 |= 0x1;
+		/* Restart stopped timer */
+		// Relevant register: TIM2->CR1
+	}
+}
+
+
 void EXTI0_1_IRQHandler()
 {
 	// Interrupt Handler
@@ -541,7 +574,10 @@ void EXTI0_1_IRQHandler()
 			//
 			double period = (double) time / 48000000;
 			double frq = 1 / period;
-			trace_printf("Period: %lf s Frq: %lf Hz\n",period,frq);
+
+			GLOBAL_FRQ = (int) frq;
+
+			//trace_printf("Period: %lf s Frq: %lf Hz\n",period,frq);
 
 			// 2. Clear EXTI1 interrupt pending flag (EXTI->PR).
 			//
