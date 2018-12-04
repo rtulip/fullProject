@@ -103,7 +103,7 @@ int main(int argc, char* argv[]){
 		while((ADC1->ISR & ADC_ISR_EOSEQ) == 0);			// Wait for end of sequence
 		ADC1->ISR &= ~ADC_ISR_EOC;							// Reset end of conversation flag
 		int voltage = (ADC1->DR & 0x00FF);					// Read ADC data
-		double res = 5000 + ((double) voltage/255.0)*5000;	// Calculate resistance
+		double res = ((double) voltage/255.0)*5000;	// Calculate resistance
 		GLOBAL_RES = (int) res;								// update global resistance value
 		DAC->DHR8R1 = voltage;								// Write ADC value to DAC
 		
@@ -114,19 +114,19 @@ int main(int argc, char* argv[]){
 }
 void myGPIOA_Init()
 {
-	//Used to detect signal from generator
+	// Used to detect signal from NE555 timer
 
 	/* Enable clock for GPIOA peripheral */
 	// Relevant register: RCC->AHBENR
 	RCC->AHBENR |= RCC_AHBENR_GPIOAEN;
 
 
-	/* Configure PA0 as output */
+	/* Configure PA1 as output */
 	// Relevant register: GPIOA->MODER
 
 	GPIOA->MODER &= ~(GPIO_MODER_MODER1);
 
-	/* Ensure no pull-up/pull-down for PA0 */
+	/* Ensure no pull-up/pull-down for PA1 */
 	// Relevant register: GPIOA->PUPDR
 	GPIOA->PUPDR &= ~(GPIO_PUPDR_PUPDR1);
 
@@ -156,6 +156,8 @@ void myGPIOB_Init(){										// GPIOB Used for SPI communication
 
 void myGPIOC_Init()
 {
+
+	// Used for ADC input
 
 	/* Enable clock for GPIOC peripheral */
 	// Relevant register: RCC->AHBENR
@@ -234,6 +236,7 @@ void myEXTI_Init()
 	/* Enable EXTI1 interrupts in NVIC */
 	// Relevant register: NVIC->ISER[0], or use NVIC_EnableIRQ
 	NVIC_EnableIRQ(EXTI0_1_IRQn);
+
 }
 
 void myADC_Init(){
@@ -273,6 +276,8 @@ void myDAC_Init(){
 	GPIOA->MODER &= ~(GPIO_MODER_MODER4);					// Configure PA4 as Analog
 
 	RCC->APB1ENR |= RCC_APB1ENR_DACEN;						// Activate DAC clock
+
+	GPIOA->PUPDR &= ~(GPIO_PUPDR_PUPDR4);					// No PUPD
 
 	DAC->CR |= DAC_CR_EN1;									// Enable DAC
 
